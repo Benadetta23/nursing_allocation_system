@@ -49,9 +49,14 @@ class Lecturer {
     
     public function saveAssessment($student_id, $site_id, $punctuality, $dressing, $communication, $comments) {
         // Check if assessment already exists
-        $existing = $this->getExistingAssessment($student_id, $site_id);
+        $checkQuery = "SELECT assess_id FROM assessment WHERE student_id = :student_id AND lecturer_id = :lecturer_id AND site_id = :site_id";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->bindParam(':lecturer_id', $this->lecturer_id);
+        $checkStmt->bindParam(':site_id', $site_id);
+        $checkStmt->execute();
         
-        if ($existing) {
+        if ($checkStmt->rowCount() > 0) {
             // Update existing assessment
             $query = "UPDATE assessment 
                       SET punctuality_score = :punctuality, 
@@ -61,20 +66,26 @@ class Lecturer {
                           assessment_date = CURDATE()
                       WHERE student_id = :student_id AND lecturer_id = :lecturer_id AND site_id = :site_id";
             $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':punctuality', $punctuality);
+            $stmt->bindParam(':dressing', $dressing);
+            $stmt->bindParam(':communication', $communication);
+            $stmt->bindParam(':comments', $comments);
+            $stmt->bindParam(':student_id', $student_id);
+            $stmt->bindParam(':lecturer_id', $this->lecturer_id);
+            $stmt->bindParam(':site_id', $site_id);
         } else {
             // Insert new assessment
             $query = "INSERT INTO assessment (student_id, lecturer_id, site_id, assessment_date, punctuality_score, dressing_score, communication_score, comments) 
                       VALUES (:student_id, :lecturer_id, :site_id, CURDATE(), :punctuality, :dressing, :communication, :comments)";
             $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':student_id', $student_id);
             $stmt->bindParam(':lecturer_id', $this->lecturer_id);
+            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':punctuality', $punctuality);
+            $stmt->bindParam(':dressing', $dressing);
+            $stmt->bindParam(':communication', $communication);
+            $stmt->bindParam(':comments', $comments);
         }
-        
-        $stmt->bindParam(':student_id', $student_id);
-        $stmt->bindParam(':site_id', $site_id);
-        $stmt->bindParam(':punctuality', $punctuality);
-        $stmt->bindParam(':dressing', $dressing);
-        $stmt->bindParam(':communication', $communication);
-        $stmt->bindParam(':comments', $comments);
         
         return $stmt->execute();
     }

@@ -9,13 +9,15 @@
 <body>
     <div class="login-container">
         <div class="login-card">
-            <h1>Daeyang University</h1>
-            <p>Nursing Allocation System</p>
+            <div class="logo-section">
+                <h1>Daeyang University</h1>
+                <p>Nursing Allocation System</p>
+            </div>
 
             <?php
             session_start();
             if (isset($_SESSION['error'])) {
-                echo '<div class="error-msg" style="background:#f8d7da; color:#721c24; padding:10px; margin-bottom:20px;">' . $_SESSION['error'] . '</div>';
+                echo '<div class="error-msg">' . $_SESSION['error'] . '</div>';
                 unset($_SESSION['error']);
             }
             ?>
@@ -32,14 +34,11 @@
                 </div>
 
                 <button type="submit" class="btn-signin">SIGN IN</button>
-            </form>
 
-            <div class="demo-info">
-                <p><strong>Demo Accounts:</strong></p>
-                <p>👑 Coordinator: COORD001 | pass</p>
-                <p>📖 Lecturer: LECT001 | pass</p>
-                <p>🎓 Student: STU001 | pass</p>
-            </div>
+                <div class="forgot-password">
+                    <a href="#">Forgot Password?</a>
+                </div>
+            </form>
         </div>
     </div>
 </body>

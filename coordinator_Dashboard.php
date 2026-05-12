@@ -8,194 +8,310 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'coordinator') {
 
 require_once 'classes/Coordinator.php';
 $coordinator = new Coordinator();
-
-$message = '';
-$error = '';
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    if (isset($_POST['add_site'])) {
-        if ($coordinator->addSite($_POST['name'], $_POST['location'], $_POST['contact_person'], $_POST['contact_phone'], $_POST['capacity'])) {
-            $message = "✅ Clinical site added successfully!";
-        } else {
-            $error = "❌ Failed to add clinical site.";
-        }
-    }
-    
-    if (isset($_POST['add_student'])) {
-        if ($coordinator->addStudent($_POST['student_number'], $_POST['name'], $_POST['email'], $_POST['cohort'], $_POST['program'], 1)) {
-            $message = "✅ Student added successfully! Password is 'pass'.";
-        } else {
-            $error = "❌ Failed to add student.";
-        }
-    }
-    
-    if (isset($_POST['allocate'])) {
-        if ($coordinator->createAllocation($_POST['student_id'], $_POST['site_id'], $_POST['start_date'], $_POST['end_date'], $_POST['role'])) {
-            $message = "✅ Allocation created successfully!";
-        } else {
-            $error = "❌ Failed to create allocation.";
-        }
-    }
-    
-    if (isset($_POST['delete_site'])) {
-        $coordinator->deleteSite($_POST['site_id']);
-        $message = "✅ Site deleted successfully!";
-    }
-    
-    if (isset($_POST['delete_student'])) {
-        $coordinator->deleteStudent($_POST['student_id']);
-        $message = "✅ Student deleted successfully!";
-    }
-    
-    if (isset($_POST['delete_allocation'])) {
-        $coordinator->deleteAllocation($_POST['alloc_id']);
-        $message = "✅ Allocation deleted successfully!";
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coordinator Dashboard</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>Coordinator Dashboard - Daeyang University</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: url('images/dashboard-bg.jpg') center/cover no-repeat fixed;
+            position: relative;
+            min-height: 100vh;
+        }
+        
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(26, 42, 108, 0.85);
+            z-index: -1;
+        }
+        
+        /* Header */
+        .header {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            color: white;
+            font-size: 1.3rem;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .user-info span {
+            color: white;
+        }
+        
+        .role-badge {
+            background: #c3a343;
+            color: #1a2a6c;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .btn-logout {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-size: 0.8rem;
+            transition: 0.3s;
+        }
+        
+        .btn-logout:hover {
+            background: #dc3545;
+        }
+        
+        /* Main Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        /* Welcome Card */
+        .welcome-card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-left: 5px solid #c3a343;
+        }
+        
+        .welcome-card h2 {
+            color: #1a2a6c;
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+        
+        .welcome-card p {
+            color: #666;
+        }
+        
+        /* Navigation Tabs */
+        .nav-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+        
+        .nav-tab {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(5px);
+            border: none;
+            padding: 14px 30px;
+            border-radius: 50px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .nav-tab:hover {
+            background: #c3a343;
+            color: #1a2a6c;
+            transform: translateY(-3px);
+        }
+        
+        /* Quick Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+        
+        .stat-card {
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(5px);
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+            transition: 0.3s;
+            border-bottom: 3px solid #c3a343;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255,255,255,0.95);
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a2a6c;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        /* Additional Stats Row */
+        .stats-row-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .info-card {
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(5px);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .info-card h4 {
+            color: #1a2a6c;
+            margin-bottom: 10px;
+        }
+        
+        .info-card p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .badge-active {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        @media (max-width: 768px) {
+            .container { padding: 20px; }
+            .welcome-card h2 { font-size: 1.3rem; }
+            .nav-tab { padding: 10px 20px; font-size: 0.9rem; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
 </head>
 <body>
-    <div class="dashboard-container">
-        <div class="dashboard-header">
-            <h1>🏥 Coordinator Dashboard</h1>
-            <div class="user-info">
-                <span>Welcome, <?php echo htmlspecialchars($_SESSION['name']); ?></span>
-                <span class="role-badge">Coordinator</span>
-                <a href="actions/logout.php" class="btn-logout">Logout</a>
+    <div class="header">
+        <h1>🏥 Daeyang University - Nursing Allocation System</h1>
+        <div class="user-info">
+            <span>Welcome, <?php echo htmlspecialchars($_SESSION['name']); ?></span>
+            <span class="role-badge">Coordinator</span>
+            <a href="actions/logout.php" class="btn-logout">Logout</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- Welcome Card -->
+        <div class="welcome-card">
+            <h2>Welcome back, <?php echo htmlspecialchars($_SESSION['name']); ?>! 👋</h2>
+            <p>Manage clinical sites, nursing students, and allocations from your dashboard.</p>
+        </div>
+        
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+            <a href="coordinator_sites.php" class="nav-tab">🏥 Clinical Sites</a>
+            <a href="coordinator_students.php" class="nav-tab">👩‍🎓 Students</a>
+            <a href="coordinator_allocations.php" class="nav-tab">📌 Allocations</a>
+            <a href="coordinator_reports.php" class="nav-tab">📊 Reports</a>
+        </div>
+        
+        <!-- Quick Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number"><?php echo count($coordinator->getSites()); ?></div>
+                <div class="stat-label">🏥 Clinical Sites</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo count($coordinator->getStudents()); ?></div>
+                <div class="stat-label">👩‍🎓 Nursing Students</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo count($coordinator->getAllocations()); ?></div>
+                <div class="stat-label">📌 Active Allocations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo count($coordinator->getPendingAssessments()); ?></div>
+                <div class="stat-label">⚠️ Pending Assessments</div>
             </div>
         </div>
         
-        <div class="dashboard-content">
-            <?php if ($message): ?>
-                <div class="success-msg"><?php echo $message; ?></div>
-            <?php endif; ?>
-            <?php if ($error): ?>
-                <div class="error-msg"><?php echo $error; ?></div>
-            <?php endif; ?>
-            
-            <div class="card">
-                <h3>🏥 Add Clinical Site</h3>
-                <form method="POST">
-                    <input type="text" name="name" placeholder="Site Name" required>
-                    <input type="text" name="location" placeholder="Location" required>
-                    <input type="text" name="contact_person" placeholder="Contact Person">
-                    <input type="text" name="contact_phone" placeholder="Contact Phone">
-                    <input type="number" name="capacity" placeholder="Capacity" value="10">
-                    <button type="submit" name="add_site" class="btn-primary">Add Site</button>
-                </form>
+        <!-- Additional Info Row -->
+        <div class="stats-row-2">
+            <div class="info-card">
+                <h4>📋 Total Assessments</h4>
+                <?php
+                $assessments = $coordinator->getAssessmentSummary();
+                $totalAssessments = 0;
+                foreach ($assessments as $a) {
+                    $totalAssessments += $a['assessment_count'];
+                }
+                ?>
+                <p class="stat-number" style="font-size: 1.5rem;"><?php echo $totalAssessments; ?></p>
+                <p>Assessments Completed</p>
             </div>
-            
-            <div class="card">
-                <h3>👩‍🎓 Add Student</h3>
-                <form method="POST">
-                    <input type="text" name="student_number" placeholder="Student Number" required>
-                    <input type="text" name="name" placeholder="Full Name" required>
-                    <input type="email" name="email" placeholder="Email" required>
-                    <input type="text" name="cohort" placeholder="Cohort">
-                    <input type="text" name="program" placeholder="Program">
-                    <button type="submit" name="add_student" class="btn-primary">Add Student</button>
-                </form>
+            <div class="info-card">
+                <h4>⭐ Average Performance</h4>
+                <?php
+                $totalAvg = 0;
+                $count = 0;
+                foreach ($assessments as $a) {
+                    if ($a['overall_average']) {
+                        $totalAvg += $a['overall_average'];
+                        $count++;
+                    }
+                }
+                $avgScore = $count > 0 ? round($totalAvg / $count, 1) : 0;
+                ?>
+                <p class="stat-number" style="font-size: 1.5rem;"><?php echo $avgScore; ?>/5</p>
+                <p>Average Student Score</p>
             </div>
-            
-            <div class="card">
-                <h3>📌 Create Allocation</h3>
-                <form method="POST">
-                    <select name="student_id" required>
-                        <option value="">Select Student</option>
-                        <?php foreach ($coordinator->getStudents() as $student): ?>
-                            <option value="<?php echo $student['student_id']; ?>"><?php echo $student['student_number']; ?> - <?php echo $student['name']; ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <select name="site_id" required>
-                        <option value="">Select Site</option>
-                        <?php foreach ($coordinator->getSites() as $site): ?>
-                            <option value="<?php echo $site['site_id']; ?>"><?php echo $site['name']; ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input type="text" name="role" placeholder="Role" value="General Nursing">
-                    <input type="date" name="start_date" required>
-                    <input type="date" name="end_date" required>
-                    <button type="submit" name="allocate" class="btn-primary">Create Allocation</button>
-                </form>
-            </div>
-        </div>
-        
-        <div class="card full-width">
-            <h3>🏥 Clinical Sites</h3>
-            <table class="data-table">
-                <thead><tr><th>Name</th><th>Location</th><th>Contact</th><th>Capacity</th><th>Action</th></tr></thead>
-                <tbody>
-                    <?php foreach ($coordinator->getSites() as $site): ?>
-                    <tr>
-                        <td><?php echo $site['name']; ?></td>
-                        <td><?php echo $site['location']; ?></td>
-                        <td><?php echo $site['contact_person']; ?></td>
-                        <td><?php echo $site['capacity']; ?></td>
-                        <td>
-                            <form method="POST" style="display:inline">
-                                <input type="hidden" name="site_id" value="<?php echo $site['site_id']; ?>">
-                                <button type="submit" name="delete_site" class="btn-danger" onclick="return confirm('Delete this site?')">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="card full-width">
-            <h3>👩‍🎓 Students</h3>
-            <table class="data-table">
-                <thead><tr><th>Number</th><th>Name</th><th>Email</th><th>Cohort</th><th>Program</th><th>Action</th></tr></thead>
-                <tbody>
-                    <?php foreach ($coordinator->getStudents() as $student): ?>
-                    <tr>
-                        <td><?php echo $student['student_number']; ?></td>
-                        <td><?php echo $student['name']; ?></td>
-                        <td><?php echo $student['email']; ?></td>
-                        <td><?php echo $student['cohort']; ?></td>
-                        <td><?php echo $student['program']; ?></td>
-                        <td>
-                            <form method="POST" style="display:inline">
-                                <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
-                                <button type="submit" name="delete_student" class="btn-danger" onclick="return confirm('Delete this student?')">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="card full-width">
-            <h3>📌 Allocations</h3>
-            <table class="data-table">
-                <thead><tr><th>Student</th><th>Site</th><th>Role</th><th>Period</th><th>Status</th><th>Action</th></tr></thead>
-                <tbody>
-                    <?php foreach ($coordinator->getAllocations() as $alloc): ?>
-                    <tr>
-                        <td><?php echo $alloc['student_name']; ?></td>
-                        <td><?php echo $alloc['site_name']; ?></td>
-                        <td><?php echo $alloc['role']; ?></td>
-                        <td><?php echo $alloc['start_date']; ?> to <?php echo $alloc['end_date']; ?></td>
-                        <td><?php echo $alloc['status']; ?></td>
-                        <td>
-                            <form method="POST" style="display:inline">
-                                <input type="hidden" name="alloc_id" value="<?php echo $alloc['alloc_id']; ?>">
-                                <button type="submit" name="delete_allocation" class="btn-danger" onclick="return confirm('Delete this allocation?')">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
         </div>
     </div>
 </body>

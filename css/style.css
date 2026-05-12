@@ -100,6 +100,40 @@
     grid-column: span 2;
 }
 
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    transition: transform 0.2s;
+    border-bottom: 3px solid #c3a343;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+}
+
+.stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #1a2a6c;
+}
+
+.stat-label {
+    color: #666;
+    font-size: 0.85rem;
+    margin-top: 5px;
+}
+
 /* Form Elements */
 .form-group {
     margin-bottom: 20px;
@@ -112,6 +146,7 @@
     color: #1a2a6c;
 }
 
+.form-group input,
 .form-group select,
 .form-group textarea {
     width: 100%;
@@ -123,6 +158,7 @@
     transition: border-color 0.3s;
 }
 
+.form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
     outline: none;
@@ -163,7 +199,7 @@
     margin: 5px 0;
 }
 
-/* Badges */
+/* Badges - General */
 .badge {
     display: inline-block;
     padding: 4px 12px;
@@ -181,6 +217,57 @@
 .badge-warning {
     background: #fff3cd;
     color: #856404;
+}
+
+/* Days Remaining Badges */
+.badge-active {
+    background: #28a745;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-expiring {
+    background: #ffc107;
+    color: #333;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-overdue {
+    background: #dc3545;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-completed {
+    background: #6c757d;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-info {
+    background: #17a2b8;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
 }
 
 /* Buttons */
@@ -284,6 +371,11 @@
 
 .data-table tr:hover {
     background: #f8f9fa;
+}
+
+/* Text alignment */
+.text-center {
+    text-align: center;
 }
 
 /* ============================================
@@ -553,6 +645,10 @@
     
     .card {
         padding: 18px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
     
     .students-grid {
