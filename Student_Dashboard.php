@@ -30,6 +30,8 @@ $student = new Student($student_id);
 $placement = $student->getPlacement();
 $results = $student->getResults();
 $info = $student->getStudentInfo();
+$finalGrade = $student->getFinalGrade();
+$assessmentProgress = $student->getAssessmentProgress();
 
 $message = '';
 $error = '';
@@ -53,7 +55,7 @@ if ($placement) {
         $placement_status_text = 'Overdue';
         $placement_status_class = 'badge-overdue';
     } elseif ($days_remaining == 0) {
-        $placement_status_text = 'Ends Today!';
+        $placement_status_text = 'Ends Today';
         $placement_status_class = 'badge-warning';
     } elseif ($days_remaining <= 7) {
         $placement_status_text = 'Ending Soon';
@@ -76,9 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         $_SESSION['email'] = $_POST['email'];
         $student_name = $_POST['name'];
         $student_email = $_POST['email'];
-        $message = "✅ Profile updated successfully!";
+        $message = "Profile updated successfully";
     } else {
-        $error = "❌ Failed to update profile.";
+        $error = "Failed to update profile";
     }
 }
 ?>
@@ -98,36 +100,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         body {
             font-family: 'Inter', sans-serif;
-            background: url('images/dashboard-bg.jpg') center/cover no-repeat fixed;
-            position: relative;
+            background: #654321;
             min-height: 100vh;
         }
         
-        body::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: -1;
-        }
-        
-        /* Header */
         .header {
-            background: #1a2a6c;
+            background: #4a2f1a;
             padding: 15px 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
             gap: 15px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-bottom: 1px solid #c3a343;
         }
         
         .header h1 {
-            color: white;
+            color: #c3a343;
             font-size: 1.3rem;
         }
         
@@ -143,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .role-badge {
             background: #c3a343;
-            color: #1a2a6c;
+            color: #4a2f1a;
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 0.75rem;
@@ -151,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         }
         
         .btn-logout {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255,255,255,0.2);
             color: white;
             padding: 6px 16px;
             border-radius: 30px;
@@ -164,13 +153,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             background: #dc3545;
         }
         
-        /* Navigation Tabs */
         .nav-tabs {
-            background: white;
+            background: #5a3a2a;
             display: flex;
             gap: 5px;
             padding: 0 20px;
-            border-bottom: 1px solid #e0e0e0;
             flex-wrap: wrap;
         }
         
@@ -181,40 +168,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             cursor: pointer;
             font-size: 1rem;
             font-weight: 500;
-            color: #666;
+            color: #ddd;
             transition: 0.3s;
             text-decoration: none;
             display: inline-block;
         }
         
         .nav-tab:hover {
-            color: #1a2a6c;
+            color: #c3a343;
         }
         
         .nav-tab.active {
-            color: #1a2a6c;
+            color: #c3a343;
             border-bottom: 3px solid #c3a343;
+            background: #4a2f1a;
         }
         
-        /* Container */
         .container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 30px 20px;
         }
         
-        /* Welcome Card */
         .welcome-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
+            background: white;
+            border-radius: 12px;
             padding: 25px 30px;
             margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-            border-left: 5px solid #c3a343;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid #c3a343;
         }
         
         .welcome-card h2 {
-            color: #1a2a6c;
+            color: #4a2f1a;
             font-size: 1.5rem;
             margin-bottom: 5px;
         }
@@ -223,7 +209,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             color: #666;
         }
         
-        /* Content Sections */
         .content-section {
             display: none;
             animation: fadeIn 0.3s ease;
@@ -238,34 +223,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             to { opacity: 1; transform: translateY(0); }
         }
         
-        /* Cards */
         .card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
+            background: white;
+            border-radius: 12px;
             padding: 25px;
             margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s;
-        }
-        
-        .card:hover {
-            transform: translateY(-3px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
         .card h2 {
-            color: #1a2a6c;
+            color: #4a2f1a;
             margin-bottom: 20px;
             border-left: 4px solid #c3a343;
             padding-left: 15px;
-            font-size: 1.3rem;
         }
         
         .card h3 {
-            color: #1a2a6c;
+            color: #4a2f1a;
             margin-bottom: 15px;
         }
         
-        /* Form Elements */
         .form-group {
             margin-bottom: 20px;
         }
@@ -274,18 +251,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             display: block;
             margin-bottom: 8px;
             font-weight: 500;
-            color: #1a2a6c;
+            color: #4a2f1a;
         }
         
         .form-group input {
             width: 100%;
             padding: 12px;
             border: 1px solid #ddd;
-            border-radius: 8px;
+            border-radius: 6px;
             font-size: 0.9rem;
         }
         
-        /* Placement Info */
         .placement-info {
             margin-top: 10px;
         }
@@ -299,7 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         .info-label {
             width: 140px;
             font-weight: 600;
-            color: #1a2a6c;
+            color: #4a2f1a;
         }
         
         .info-value {
@@ -307,7 +283,54 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             color: #444;
         }
         
-        /* Results List */
+        .final-grade-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 15px;
+            border: 1px solid #c3a343;
+            text-align: center;
+        }
+        
+        .final-grade-score {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #4a2f1a;
+        }
+        
+        .final-grade-letter {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #c3a343;
+        }
+        
+        .badge-progress-warning {
+            background: #ffc107;
+            color: #333;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            display: inline-block;
+        }
+        
+        .badge-progress-info {
+            background: #17a2b8;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            display: inline-block;
+        }
+        
+        .badge-progress-success {
+            background: #28a745;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            display: inline-block;
+        }
+        
         .results-list {
             max-height: 400px;
             overflow-y: auto;
@@ -315,7 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .result-item {
             background: #f8f9fa;
-            border-radius: 16px;
+            border-radius: 12px;
             padding: 18px;
             margin-bottom: 15px;
             border-left: 4px solid #c3a343;
@@ -336,7 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         .result-site {
             font-size: 0.85rem;
             font-weight: 600;
-            color: #1a2a6c;
+            color: #4a2f1a;
         }
         
         .result-scores {
@@ -397,7 +420,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             margin: 5px 0;
         }
         
-        .lecturer-name {
+        .assessor-name {
             font-size: 0.7rem;
             color: #999;
             display: block;
@@ -405,7 +428,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             margin-top: 8px;
         }
         
-        /* Profile Section */
         .profile-info {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -421,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .info-box label {
             font-weight: 600;
-            color: #1a2a6c;
+            color: #4a2f1a;
             display: block;
             margin-bottom: 5px;
             font-size: 0.8rem;
@@ -434,10 +456,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .btn-secondary {
             background: #c3a343;
-            color: #1a2a6c;
+            color: #4a2f1a;
             padding: 10px 20px;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             cursor: pointer;
             transition: 0.3s;
             font-weight: 500;
@@ -447,7 +469,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             background: #d4b353;
         }
         
-        /* Badges */
         .badge-active {
             background: #28a745;
             color: white;
@@ -494,7 +515,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             background: #d4edda;
             color: #155724;
             padding: 12px;
-            border-radius: 8px;
+            border-radius: 6px;
             margin-bottom: 20px;
             border-left: 4px solid #28a745;
         }
@@ -503,7 +524,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             background: #f8d7da;
             color: #721c24;
             padding: 12px;
-            border-radius: 8px;
+            border-radius: 6px;
             margin-bottom: 20px;
             border-left: 4px solid #dc3545;
         }
@@ -512,7 +533,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
             .nav-tabs { justify-content: center; }
-            .nav-tab { padding: 10px 15px; font-size: 0.9rem; }
             .info-row { flex-direction: column; }
             .info-label { width: 100%; margin-bottom: 5px; }
             .result-scores { flex-direction: column; }
@@ -522,7 +542,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
 </head>
 <body>
     <div class="header">
-        <h1>🎓 Daeyang University - Student Dashboard</h1>
+        <h1>Daeyang University - Student Dashboard</h1>
         <div class="user-info">
             <span>Welcome, <?php echo htmlspecialchars($_SESSION['name']); ?></span>
             <span class="role-badge">Student</span>
@@ -530,11 +550,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         </div>
     </div>
     
-    <!-- Navigation Tabs -->
     <div class="nav-tabs">
-        <a href="?tab=placement" class="nav-tab <?php echo $active_tab == 'placement' ? 'active' : ''; ?>">📍 My Placement</a>
-        <a href="?tab=results" class="nav-tab <?php echo $active_tab == 'results' ? 'active' : ''; ?>">⭐ Assessment Results</a>
-        <a href="?tab=profile" class="nav-tab <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">👤 My Profile</a>
+        <a href="?tab=placement" class="nav-tab <?php echo $active_tab == 'placement' ? 'active' : ''; ?>">My Placement</a>
+        <a href="?tab=results" class="nav-tab <?php echo $active_tab == 'results' ? 'active' : ''; ?>">Assessment Results</a>
+        <a href="?tab=profile" class="nav-tab <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">My Profile</a>
     </div>
     
     <div class="container">
@@ -545,76 +564,120 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             <div class="error-msg"><?php echo $error; ?></div>
         <?php endif; ?>
         
-        <!-- Placement Tab -->
         <div id="placementSection" class="content-section <?php echo $active_tab == 'placement' ? 'active' : ''; ?>">
             <div class="card">
-                <h2>📍 My Clinical Placement</h2>
+                <h2>My Clinical Placement</h2>
                 <?php if ($placement): ?>
                     <div class="placement-info">
                         <div class="info-row">
-                            <span class="info-label">🏥 Hospital/Site:</span>
-                            <span class="info-value"><?php echo htmlspecialchars($placement['site_name']); ?></span>
+                            <span class="info-label">Hospital / Site:</span>
+                            <span class="info-value"><?php echo htmlspecialchars($placement['site_name'] ?? ''); ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">📍 Location:</span>
-                            <span class="info-value"><?php echo htmlspecialchars($placement['location']); ?></span>
+                            <span class="info-label">Location:</span>
+                            <span class="info-value"><?php echo htmlspecialchars($placement['location'] ?? ''); ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">👤 Contact Person:</span>
-                            <span class="info-value"><?php echo htmlspecialchars($placement['contact_person']); ?></span>
+                            <span class="info-label">Contact Person:</span>
+                            <span class="info-value"><?php echo htmlspecialchars($placement['contact_person'] ?? ''); ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">💼 Role:</span>
-                            <span class="info-value"><?php echo htmlspecialchars($placement['role']); ?></span>
+                            <span class="info-label">Role:</span>
+                            <span class="info-value"><?php echo htmlspecialchars($placement['role'] ?? ''); ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">📅 Start Date:</span>
-                            <span class="info-value"><?php echo date('M d, Y', strtotime($placement['start_date'])); ?></span>
+                            <span class="info-label">Start Date:</span>
+                            <span class="info-value"><?php echo isset($placement['start_date']) ? date('M d, Y', strtotime($placement['start_date'])) : '-'; ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">📅 End Date:</span>
-                            <span class="info-value"><?php echo date('M d, Y', strtotime($placement['end_date'])); ?></span>
+                            <span class="info-label">End Date:</span>
+                            <span class="info-value"><?php echo isset($placement['end_date']) ? date('M d, Y', strtotime($placement['end_date'])) : '-'; ?></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">⏰ Days Remaining:</span>
+                            <span class="info-label">Days Remaining:</span>
                             <span class="info-value">
                                 <?php if ($placement['status'] == 'completed'): ?>
                                     <span class="badge-completed">Completed</span>
                                 <?php elseif ($days_remaining < 0): ?>
                                     <span class="badge-overdue">Overdue by <?php echo abs($days_remaining); ?> days</span>
                                 <?php elseif ($days_remaining == 0): ?>
-                                    <span class="badge-warning">Ends Today!</span>
+                                    <span class="badge-warning">Ends Today</span>
                                 <?php elseif ($days_remaining <= 7): ?>
-                                    <span class="badge-warning"><?php echo $days_remaining; ?> days remaining ⚠️</span>
+                                    <span class="badge-warning"><?php echo $days_remaining; ?> days remaining</span>
                                 <?php else: ?>
-                                    <span class="badge-active"><?php echo $days_remaining; ?> days remaining ✅</span>
+                                    <span class="badge-active"><?php echo $days_remaining; ?> days remaining</span>
                                 <?php endif; ?>
                             </span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">📊 Status:</span>
+                            <span class="info-label">Status:</span>
                             <span class="info-value">
                                 <span class="<?php echo $placement_status_class; ?>"><?php echo $placement_status_text; ?></span>
                             </span>
                         </div>
+                        <div class="info-row">
+                            <span class="info-label">Assessment Progress:</span>
+                            <span class="info-value">
+                                <?php if ($assessmentProgress): ?>
+                                    <span class="<?php echo $assessmentProgress['badge_class']; ?>">
+                                        <?php echo $assessmentProgress['message']; ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge-progress-warning">No assessments yet</span>
+                                <?php endif; ?>
+                            </span>
+                        </div>
                     </div>
+                    
+                    <!-- Final Grade Card -->
+                    <?php if ($finalGrade): ?>
+                    <div class="final-grade-card">
+                        <div class="final-grade-score"><?php echo $finalGrade['score']; ?> / 5</div>
+                        <div class="final-grade-letter">Grade: <?php echo $finalGrade['grade']; ?> (<?php echo $finalGrade['grade_description']; ?>)</div>
+                        <div style="font-size: 0.75rem; color: #666; margin-top: 5px;">
+                            Based on <?php echo $finalGrade['total_assessments']; ?> assessment(s)
+                        </div>
+                    </div>
+                    <?php else: ?>
+                    <div class="final-grade-card">
+                        <div style="color: #666;">Final Grade: Not yet available</div>
+                        <div style="font-size: 0.75rem; color: #999; margin-top: 5px;">
+                            <?php if ($assessmentProgress && $assessmentProgress['matron_done'] && !$assessmentProgress['lecturer_done']): ?>
+                                Initial assessment complete. Waiting for final assessment.
+                            <?php elseif ($assessmentProgress && !$assessmentProgress['matron_done']): ?>
+                                Waiting for initial assessment.
+                            <?php else: ?>
+                                Waiting for assessments from matron and lecturer.
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    
                 <?php else: ?>
                     <p class="no-data">No active placement assigned yet. Please contact your coordinator.</p>
                 <?php endif; ?>
             </div>
         </div>
         
-        <!-- Results Tab -->
         <div id="resultsSection" class="content-section <?php echo $active_tab == 'results' ? 'active' : ''; ?>">
             <div class="card">
-                <h2>⭐ My Assessment Results</h2>
+                <h2>My Assessment Results</h2>
                 <?php if (count($results) > 0): ?>
                     <div class="results-list">
                         <?php foreach ($results as $result): ?>
                             <div class="result-item">
                                 <div class="result-header">
-                                    <span class="result-date">📅 <?php echo date('M d, Y', strtotime($result['assessment_date'])); ?></span>
-                                    <span class="result-site">📍 <?php echo htmlspecialchars($result['site_name']); ?></span>
+                                    <span class="result-date"><?php echo date('M d, Y', strtotime($result['assessment_date'])); ?></span>
+                                    <span class="result-site"><?php echo htmlspecialchars($result['site_name'] ?? ''); ?></span>
+                                    <span class="assessor-name" style="margin-top: 0;">
+                                        <?php 
+                                        if ($result['assessor_type'] == 'matron') {
+                                            echo 'Initial Assessment (Matron)';
+                                        } else {
+                                            echo 'Final Assessment (Lecturer)';
+                                        }
+                                        ?>
+                                    </span>
                                 </div>
                                 <div class="result-scores">
                                     <div class="score">
@@ -630,50 +693,49 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                         <span class="score-value <?php echo $result['communication_score'] >= 4 ? 'score-high' : ($result['communication_score'] >= 3 ? 'score-medium' : 'score-low'); ?>"><?php echo $result['communication_score']; ?>/5</span>
                                     </div>
                                 </div>
-                                <?php if ($result['comments']): ?>
+                                <?php if (!empty($result['comments'])): ?>
                                     <div class="result-comments">
-                                        <span class="comments-label">💬 Lecturer's Comments:</span>
-                                        <p>"<?php echo htmlspecialchars($result['comments']); ?>"</p>
-                                        <span class="lecturer-name">— <?php echo htmlspecialchars($result['lecturer_name']); ?></span>
+                                        <span class="comments-label">Comments:</span>
+                                        <p>"<?php echo htmlspecialchars($result['comments'] ?? ''); ?>"</p>
+                                        <span class="assessor-name">— <?php echo htmlspecialchars($result['assessor_name'] ?? ($result['assessor_type'] == 'matron' ? 'Matron' : 'Lecturer')); ?></span>
                                     </div>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <p class="no-data">No assessment results yet. Your lecturer will assess you during your placement.</p>
+                    <p class="no-data">No assessment results yet. Your matron will conduct an initial assessment, followed by a final assessment from your lecturer.</p>
                 <?php endif; ?>
             </div>
         </div>
         
-        <!-- Profile Tab -->
         <div id="profileSection" class="content-section <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">
             <div class="card">
-                <h2>👤 My Profile</h2>
+                <h2>My Profile</h2>
                 <div class="profile-info">
                     <div class="info-box">
-                        <label>📛 Full Name</label>
+                        <label>Full Name</label>
                         <p><?php echo htmlspecialchars($student_name); ?></p>
                     </div>
                     <div class="info-box">
-                        <label>🆔 Student Number</label>
+                        <label>Student Number</label>
                         <p><?php echo htmlspecialchars($student_number); ?></p>
                     </div>
                     <div class="info-box">
-                        <label>📧 Email Address</label>
+                        <label>Email Address</label>
                         <p><?php echo htmlspecialchars($student_email); ?></p>
                     </div>
                     <div class="info-box">
-                        <label>📚 Cohort</label>
+                        <label>Cohort</label>
                         <p><?php echo htmlspecialchars($student_cohort); ?></p>
                     </div>
                     <div class="info-box">
-                        <label>🎓 Mode of Entry</label>
+                        <label>Mode of Entry</label>
                         <p><?php echo htmlspecialchars($student_mode); ?></p>
                     </div>
                 </div>
                 
-                <h3 style="margin-top: 20px;">✏️ Edit Profile</h3>
+                <h3 style="margin-top: 20px;">Edit Profile</h3>
                 <form method="POST">
                     <div class="form-group">
                         <label for="name">Full Name</label>
@@ -683,7 +745,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         <label for="email">Email Address</label>
                         <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($student_email); ?>" required>
                     </div>
-                    <button type="submit" name="update_profile" class="btn-secondary">💾 Update Profile</button>
+                    <button type="submit" name="update_profile" class="btn-secondary">Update Profile</button>
                 </form>
             </div>
         </div>

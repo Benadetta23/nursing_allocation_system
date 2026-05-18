@@ -305,5 +305,22 @@ class Coordinator {
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+    
+    // ============ DATE RANGE REPORT ============
+    
+    public function getReportByDateRange($date_from, $date_to) {
+        $query = "SELECT a.*, s.name as student_name, s.student_number, c.name as site_name, l.name as lecturer_name
+                  FROM assessment a
+                  JOIN student s ON a.student_id = s.student_id
+                  JOIN clinical_site c ON a.site_id = c.site_id
+                  JOIN lecturer l ON a.lecturer_id = l.lecturer_id
+                  WHERE a.assessment_date BETWEEN :date_from AND :date_to
+                  ORDER BY a.assessment_date DESC";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':date_from', $date_from);
+        $stmt->bindParam(':date_to', $date_to);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 ?>

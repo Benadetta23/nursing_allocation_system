@@ -1,5 +1,5 @@
 /* ============================================
-   LOGIN PAGE - DAEYANG UNIVERSITY STYLE
+   LOGIN PAGE - DAEYANG UNIVERSITY BROWN THEME
    ============================================ */
 
 * {
@@ -9,8 +9,8 @@
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #1a2a6c 0%, #4a69bd 50%, #c3a343 100%);
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #654321;
     min-height: 100vh;
     display: flex;
     justify-content: center;
@@ -29,7 +29,7 @@ body {
 .login-card {
     background: white;
     border-radius: 16px;
-    padding: 40px 35px;
+    padding: 50px 40px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
     border-top: 5px solid #c3a343;
 }
@@ -37,21 +37,23 @@ body {
 /* Logo Section */
 .logo-section {
     text-align: center;
-    margin-bottom: 35px;
+    margin-bottom: 40px;
 }
 
 .logo-section h1 {
-    color: #1a2a6c;
+    color: #4a2f1a;
     font-size: 1.8rem;
     font-weight: 700;
     letter-spacing: -0.5px;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
 }
 
 .logo-section p {
     color: #c3a343;
     font-size: 0.85rem;
     font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 /* Form Groups */
@@ -64,7 +66,7 @@ body {
     margin-bottom: 8px;
     font-size: 0.85rem;
     font-weight: 600;
-    color: #333;
+    color: #4a2f1a;
     letter-spacing: 0.5px;
 }
 
@@ -72,9 +74,9 @@ body {
     width: 100%;
     padding: 14px 16px;
     border: 1.5px solid #e0e0e0;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 0.95rem;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Inter', sans-serif;
     transition: all 0.3s ease;
     background: #fafafa;
 }
@@ -95,29 +97,29 @@ body {
 .btn-signin {
     width: 100%;
     padding: 14px;
-    background: #1a2a6c;
+    background: #4a2f1a;
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 40px;
     font-size: 1rem;
     font-weight: 600;
     letter-spacing: 1px;
     cursor: pointer;
     transition: all 0.3s ease;
     margin-top: 10px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 
 .btn-signin:hover {
-    background: #2a3a7c;
+    background: #654321;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(26, 42, 108, 0.3);
+    box-shadow: 0 5px 15px rgba(101, 67, 51, 0.3);
 }
 
 /* Forgot Password */
 .forgot-password {
     text-align: center;
-    margin-top: 20px;
+    margin-top: 25px;
 }
 
 .forgot-password a {
@@ -137,29 +139,17 @@ body {
     background: #f8d7da;
     color: #721c24;
     padding: 12px;
-    border-radius: 8px;
+    border-radius: 10px;
     margin-bottom: 20px;
     text-align: center;
     font-size: 0.85rem;
     border-left: 4px solid #dc3545;
 }
 
-/* Success Message */
-.success-msg {
-    background: #d4edda;
-    color: #155724;
-    padding: 12px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    text-align: center;
-    font-size: 0.85rem;
-    border-left: 4px solid #28a745;
-}
-
 /* Responsive */
 @media (max-width: 480px) {
     .login-card {
-        padding: 30px 25px;
+        padding: 35px 25px;
     }
     
     .logo-section h1 {

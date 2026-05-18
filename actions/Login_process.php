@@ -58,6 +58,30 @@ if ($stmt->rowCount() > 0) {
     }
 }
 
+// ============ CHECK MATRON ============
+$query = "SELECT * FROM matron WHERE matron_id = :regNumber OR email = :regNumber";
+$stmt = $conn->prepare($query);
+$stmt->bindParam(':regNumber', $regNumber);
+$stmt->execute();
+
+if ($stmt->rowCount() > 0) {
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (password_verify($password, $user['password_hash']) || $password == 'pass') {
+        $_SESSION['user_id'] = $user['matron_id'];
+        $_SESSION['name'] = $user['name'];
+        $_SESSION['email'] = $user['email'];
+        $_SESSION['role'] = 'matron';
+        $_SESSION['regNumber'] = $regNumber;
+        $_SESSION['site_id'] = $user['site_id'];
+        header("Location: ../matron_dashboard.php");
+        exit();
+    } else {
+        $_SESSION['error'] = "Matron password incorrect";
+        header("Location: ../login.php");
+        exit();
+    }
+}
+
 // ============ CHECK STUDENT ============
 $query = "SELECT * FROM student WHERE student_number = :regNumber";
 $stmt = $conn->prepare($query);

@@ -1,30 +1,23 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'lecturer') {
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'matron') {
     header("Location: login.php");
     exit();
 }
 
-require_once 'classes/Lecturer.php';
+require_once 'classes/Matron.php';
 require_once 'classes/Database.php';
 
 $db = new Database();
 $conn = $db->getConnection();
 
-$email = $_SESSION['email'] ?? 'lecturer@daeyang.edu';
-$query = "SELECT lecturer_id, name, email FROM lecturer WHERE email = :email";
-$stmt = $conn->prepare($query);
-$stmt->bindParam(':email', $email);
-$stmt->execute();
-$lecturerData = $stmt->fetch(PDO::FETCH_ASSOC);
+$matron_id = $_SESSION['user_id'];
+$matron_name = $_SESSION['name'];
+$matron_email = $_SESSION['email'];
 
-$lecturer_id = $lecturerData ? $lecturerData['lecturer_id'] : 1;
-$lecturer_name = $lecturerData ? $lecturerData['name'] : $_SESSION['name'];
-$lecturer_email = $lecturerData ? $lecturerData['email'] : $_SESSION['email'];
-
-$lecturer = new Lecturer($lecturer_id);
-$sites = $lecturer->getClinicalSites();
+$matron = new Matron($matron_id);
+$sites = $matron->getAllClinicalSites();
 
 $message = '';
 $error = '';
@@ -34,16 +27,16 @@ $selected_site_id = isset($_GET['site_id']) ? $_GET['site_id'] : '';
 // Get students based on selected site
 $studentsAtSite = [];
 if ($selected_site_id) {
-    $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
+    $studentsAtSite = $matron->getStudentsAtSite($selected_site_id);
 }
 
 // Handle assessment submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) {
-    if ($lecturer->saveAssessment($_POST['student_id'], $_POST['site_id'], $_POST['punctuality'], $_POST['dressing'], $_POST['communication'], $_POST['comments'])) {
-        $message = "Final Assessment saved successfully";
+    if ($matron->saveAssessment($_POST['student_id'], $_POST['site_id'], $_POST['punctuality'], $_POST['dressing'], $_POST['communication'], $_POST['comments'])) {
+        $message = "Initial Assessment saved successfully";
         // Refresh students list after saving
         if ($selected_site_id) {
-            $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
+            $studentsAtSite = $matron->getStudentsAtSite($selected_site_id);
         }
     } else {
         $error = "Failed to save assessment";
@@ -52,16 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
 
 // Update profile
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
-    $updateQuery = "UPDATE lecturer SET name = :name, email = :email WHERE lecturer_id = :lecturer_id";
+    $updateQuery = "UPDATE matron SET name = :name, email = :email WHERE matron_id = :matron_id";
     $updateStmt = $conn->prepare($updateQuery);
     $updateStmt->bindParam(':name', $_POST['name']);
     $updateStmt->bindParam(':email', $_POST['email']);
-    $updateStmt->bindParam(':lecturer_id', $lecturer_id);
+    $updateStmt->bindParam(':matron_id', $matron_id);
     if ($updateStmt->execute()) {
         $_SESSION['name'] = $_POST['name'];
         $_SESSION['email'] = $_POST['email'];
-        $lecturer_name = $_POST['name'];
-        $lecturer_email = $_POST['email'];
+        $matron_name = $_POST['name'];
+        $matron_email = $_POST['email'];
         $message = "Profile updated successfully";
     } else {
         $error = "Failed to update profile";
@@ -73,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Lecturer Dashboard - Daeyang University</title>
+    <title>Matron Dashboard - Daeyang University</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -220,6 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             margin-bottom: 20px;
             border-left: 4px solid #c3a343;
             padding-left: 15px;
+            font-size: 1.3rem;
         }
         
         .form-group {
@@ -280,6 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-radius: 20px;
             font-size: 0.7rem;
             display: inline-block;
+            margin: 10px 0;
         }
         
         .badge-warning {
@@ -294,15 +289,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         .badge-info {
             background: #d1ecf1;
             color: #0c5460;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.7rem;
-            display: inline-block;
-        }
-        
-        .badge-secondary {
-            background: #6c757d;
-            color: white;
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 0.7rem;
@@ -338,28 +324,76 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .profile-info {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
         }
         
         .info-box {
             background: #f8f9fa;
-            padding: 15px;
+            padding: 18px 20px;
             border-radius: 12px;
+            border-bottom: 2px solid #c3a343;
         }
         
         .info-box label {
             font-weight: 600;
             color: #4a2f1a;
             display: block;
-            margin-bottom: 5px;
-            font-size: 0.8rem;
+            margin-bottom: 8px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .info-box p {
             color: #333;
             font-size: 1rem;
+            font-weight: 500;
+        }
+        
+        .edit-profile-form {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+        
+        .edit-profile-form h3 {
+            color: #4a2f1a;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #c3a343;
+            display: inline-block;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a2f1a;
+            font-size: 0.85rem;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s;
+            background: white;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #c3a343;
+            box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.1);
         }
         
         .modal {
@@ -370,74 +404,153 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0,0,0,0.5);
+            background-color: rgba(0,0,0,0.6);
             justify-content: center;
             align-items: center;
         }
         
         .modal-content {
             background: white;
-            border-radius: 12px;
+            border-radius: 16px;
             width: 90%;
             max-width: 550px;
-            padding: 25px;
-            border-top: 5px solid #c3a343;
+            padding: 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            animation: modalFadeIn 0.3s ease;
+        }
+        
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
         }
         
         .modal-header {
+            background: #4a2f1a;
+            padding: 20px 25px;
+            border-radius: 16px 16px 0 0;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
         }
         
         .modal-header h3 {
-            color: #4a2f1a;
+            color: white;
+            margin: 0;
+            font-size: 1.2rem;
         }
         
-        .close {
+        .modal-header .close {
+            color: white;
             font-size: 28px;
             cursor: pointer;
-            color: #999;
-            transition: 0.3s;
+            transition: 0.2s;
+            line-height: 1;
         }
         
-        .close:hover {
-            color: #dc3545;
+        .modal-header .close:hover {
+            color: #c3a343;
+        }
+        
+        .modal-body {
+            padding: 25px;
         }
         
         .student-info-card {
             background: #f8f9fa;
             padding: 15px;
             border-radius: 12px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             border-left: 4px solid #c3a343;
+        }
+        
+        .student-info-card p {
+            margin: 8px 0;
+            color: #555;
+        }
+        
+        .student-info-card strong {
+            color: #4a2f1a;
+            width: 100px;
+            display: inline-block;
         }
         
         .score-row {
             display: flex;
             gap: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             flex-wrap: wrap;
         }
         
         .score-item {
             flex: 1;
+            min-width: 100px;
         }
         
         .score-item label {
             display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
+            margin-bottom: 8px;
+            font-weight: 600;
             color: #4a2f1a;
+            font-size: 0.85rem;
         }
         
         .score-item input {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             border: 2px solid #e0e0e0;
-            border-radius: 6px;
+            border-radius: 10px;
+            font-size: 1rem;
             text-align: center;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .score-item input:focus {
+            outline: none;
+            border-color: #c3a343;
+            box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.1);
+        }
+        
+        .comments-section {
+            margin-bottom: 25px;
+        }
+        
+        .comments-section label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a2f1a;
+            font-size: 0.85rem;
+        }
+        
+        .comments-section textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+            resize: vertical;
+            transition: all 0.3s;
+            background: #fafafa;
+        }
+        
+        .comments-section textarea:focus {
+            outline: none;
+            border-color: #c3a343;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.1);
+        }
+        
+        .comments-section textarea::placeholder {
+            color: #bbb;
+            font-style: italic;
         }
         
         .modal-buttons {
@@ -452,13 +565,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             color: white;
             padding: 12px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
-            font-weight: 500;
+            font-weight: 600;
+            transition: 0.3s;
         }
         
         .btn-save:hover {
             background: #654321;
+            transform: translateY(-2px);
         }
         
         .btn-cancel {
@@ -467,8 +582,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             color: #666;
             padding: 12px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
+            font-weight: 600;
+            transition: 0.3s;
+        }
+        
+        .btn-cancel:hover {
+            background: #e0e0e0;
         }
         
         .history-table {
@@ -517,6 +638,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-left: 4px solid #dc3545;
         }
         
+        /* Comment truncation with tooltip */
+        .comment-cell {
+            max-width: 250px;
+            cursor: pointer;
+        }
+        
+        .comment-text {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .comment-full {
+            display: none;
+        }
+        
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
@@ -525,45 +663,60 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             .score-row { flex-direction: column; }
             .modal-buttons { flex-direction: column; }
             .profile-info { grid-template-columns: 1fr; }
+            .student-info-card p strong {
+                width: auto;
+                display: inline;
+                margin-right: 5px;
+            }
+            .history-table {
+                font-size: 0.8rem;
+            }
+            .history-table th,
+            .history-table td {
+                padding: 8px;
+            }
+            .comment-cell {
+                max-width: 150px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Daeyang University - Lecturer Dashboard</h1>
+        <h1>Daeyang University - Matron / Clinical Supervisor Dashboard</h1>
         <div class="user-info">
-            <span>Welcome, <?php echo htmlspecialchars($lecturer_name); ?></span>
-            <span class="role-badge">Lecturer</span>
+            <span>Welcome, <?php echo htmlspecialchars($matron_name); ?></span>
+            <span class="role-badge">Matron</span>
             <a href="actions/logout.php" class="btn-logout">Logout</a>
         </div>
     </div>
     
     <div class="nav-tabs">
-        <a href="?tab=assessment" class="nav-tab <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">Final Assessment</a>
+        <a href="?tab=assessment" class="nav-tab <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">Student Assessment (Initial)</a>
         <a href="?tab=history" class="nav-tab <?php echo $active_tab == 'history' ? 'active' : ''; ?>">Assessment History</a>
         <a href="?tab=profile" class="nav-tab <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">My Profile</a>
     </div>
     
     <div class="container">
         <?php if ($message): ?>
-            <div class="success-msg"><?php echo $message; ?></div>
+            <div class="success-msg"><?php echo htmlspecialchars($message); ?></div>
         <?php endif; ?>
         <?php if ($error): ?>
-            <div class="error-msg"><?php echo $error; ?></div>
+            <div class="error-msg"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
         
         <div class="welcome-card">
-            <h2>Welcome, <?php echo htmlspecialchars($lecturer_name); ?></h2>
-            <p>Select a clinical site to conduct FINAL assessments. Matron must complete initial assessment first.</p>
+            <h2>Welcome, <?php echo htmlspecialchars($matron_name); ?></h2>
+            <p>Select a clinical site to conduct INITIAL assessments. Lecturer will do FINAL assessment later.</p>
         </div>
         
         <div id="assessmentSection" class="content-section <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">
             <div class="card">
-                <h2>Final Assessment (Lecturer)</h2>
+                <h2>Initial Assessment (Matron)</h2>
                 
                 <div class="form-group">
                     <label for="siteSelect">Select Clinical Site</label>
-                    <select id="siteSelect" class="form-control" onchange="window.location.href='?tab=assessment&site_id='+this.value">
+                    <select id="siteSelect" onchange="window.location.href='?tab=assessment&site_id='+this.value">
                         <option value="">-- Select a Clinical Site --</option>
                         <?php foreach ($sites as $site): ?>
                             <option value="<?php echo $site['site_id']; ?>" <?php echo $selected_site_id == $site['site_id'] ? 'selected' : ''; ?>>
@@ -582,26 +735,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                 <p>Cohort: <?php echo htmlspecialchars($student['cohort']); ?></p>
                                 <p>Role: <?php echo htmlspecialchars($student['role']); ?></p>
                                 <?php
-                                $matronDone = ($student['matron_assessed'] > 0);
-                                $lecturerDone = ($student['already_assessed'] > 0);
-                                
-                                if (!$matronDone):
+                                $initialDone = $student['already_assessed'] > 0;
+                                if ($initialDone):
                                 ?>
-                                    <span class="badge-secondary">Awaiting Matron Initial Assessment</span>
-                                    <button class="btn-secondary" disabled>Not Available</button>
-                                <?php elseif ($matronDone && !$lecturerDone): ?>
-                                    <span class="badge-info">Final Assessment Pending</span>
-                                    <button class="btn-primary assess-btn" 
-                                        data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
-                                        data-siteid="<?php echo $selected_site_id; ?>">
-                                        Start Final Assessment
-                                    </button>
-                                <?php else: ?>
-                                    <span class="badge-success">Final Assessment Complete</span>
+                                    <span class="badge-success">Initial Assessment Complete</span>
                                     <button class="btn-secondary assess-btn" 
                                         data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
                                         data-siteid="<?php echo $selected_site_id; ?>">
                                         View Assessment
+                                    </button>
+                                <?php else: ?>
+                                    <span class="badge-warning">Initial Assessment Pending</span>
+                                    <button class="btn-primary assess-btn" 
+                                        data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
+                                        data-siteid="<?php echo $selected_site_id; ?>">
+                                        Start Initial Assessment
                                     </button>
                                 <?php endif; ?>
                             </div>
@@ -619,7 +767,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             <div class="card">
                 <h2>My Assessment History</h2>
                 <?php
-                $history = $lecturer->getAssessmentHistory();
+                $history = $matron->getAssessmentHistory();
                 if (count($history) > 0):
                 ?>
                 <div style="overflow-x: auto;">
@@ -639,12 +787,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                             <?php foreach ($history as $h): ?>
                             <tr>
                                 <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
-                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo $h['student_number']; ?>)<\/td>
-                                <td><?php echo htmlspecialchars($h['site_name']); ?><\/td>
-                                <td><?php echo $h['punctuality_score']; ?>/5<\/td>
-                                <td><?php echo $h['dressing_score']; ?>/5<\/td>
-                                <td><?php echo $h['communication_score']; ?>/5<\/td>
-                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...<\/td>
+                                <td>
+                                    <?php echo htmlspecialchars($h['student_name']); ?><br>
+                                    <small class="text-muted">(<?php echo htmlspecialchars($h['student_number']); ?>)</small>
+                                </td>
+                                <td><?php echo htmlspecialchars($h['site_name']); ?></td>
+                                <td><?php echo intval($h['punctuality_score']); ?>/5</td>
+                                <td><?php echo intval($h['dressing_score']); ?>/5</td>
+                                <td><?php echo intval($h['communication_score']); ?>/5</td>
+                                <td class="comment-cell" title="<?php echo htmlspecialchars($h['comments'], ENT_QUOTES, 'UTF-8'); ?>">
+                                    <?php 
+                                    $comments = trim($h['comments']);
+                                    if (strlen($comments) > 50) {
+                                        echo htmlspecialchars(substr($comments, 0, 50), ENT_QUOTES, 'UTF-8') . '...';
+                                    } else {
+                                        echo htmlspecialchars($comments, ENT_QUOTES, 'UTF-8');
+                                    }
+                                    ?>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -662,30 +822,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                 <div class="profile-info">
                     <div class="info-box">
                         <label>Full Name</label>
-                        <p><?php echo htmlspecialchars($lecturer_name); ?></p>
+                        <p><?php echo htmlspecialchars($matron_name); ?></p>
                     </div>
                     <div class="info-box">
                         <label>Email Address</label>
-                        <p><?php echo htmlspecialchars($lecturer_email); ?></p>
+                        <p><?php echo htmlspecialchars($matron_email); ?></p>
                     </div>
                     <div class="info-box">
                         <label>Role</label>
-                        <p>Lecturer - Nursing Department</p>
+                        <p>Matron / Clinical Supervisor</p>
                     </div>
                 </div>
                 
-                <h3 style="margin-top: 20px;">Edit Profile</h3>
-                <form method="POST">
-                    <div class="form-group">
-                        <label for="name">Full Name</label>
-                        <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($lecturer_name); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="email">Email Address</label>
-                        <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($lecturer_email); ?>" required>
-                    </div>
-                    <button type="submit" name="update_profile" class="btn-secondary">Update Profile</button>
-                </form>
+                <div class="edit-profile-form">
+                    <h3>Edit Profile</h3>
+                    <form method="POST">
+                        <div class="form-group">
+                            <label for="name">Full Name</label>
+                            <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($matron_name); ?>" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email Address</label>
+                            <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($matron_email); ?>" required>
+                        </div>
+                        <button type="submit" name="update_profile" class="btn-secondary">Update Profile</button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -694,7 +856,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     <div id="assessmentModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Final Assessment (Lecturer)</h3>
+                <h3>Initial Assessment (Matron)</h3>
                 <span class="close" onclick="closeModal()">&times;</span>
             </div>
             <form method="POST" id="assessmentForm">
@@ -724,13 +886,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label>Comments</label>
-                        <textarea id="comments" name="comments" rows="4" placeholder="Add your final observations..."></textarea>
+                    <div class="comments-section">
+                        <label for="comments">Comments / Observations</label>
+                        <textarea id="comments" name="comments" rows="4" placeholder="Write your observations about the student's clinical performance..."></textarea>
                     </div>
                     
                     <div class="modal-buttons">
-                        <button type="submit" name="submit_assessment" class="btn-save">Save Final Assessment</button>
+                        <button type="submit" name="submit_assessment" class="btn-save">Save Initial Assessment</button>
                         <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
                     </div>
                 </div>
@@ -739,73 +901,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     </div>
     
     <script>
-        document.getElementById('siteSelect').addEventListener('change', function() {
-            const siteId = this.value;
-            if (!siteId) {
-                document.getElementById('studentsContainer').innerHTML = '<p class="no-data">Please select a clinical site to view students.</p>';
-                return;
-            }
-            
-            fetch('ajax/get_students_by_site.php?site_id=' + siteId)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        document.getElementById('studentsContainer').innerHTML = '<p class="no-data">No students allocated to this site.</p>';
-                        return;
-                    }
-                    
-                    let html = '<div class="students-grid">';
-                    data.forEach(student => {
-                        const matronDone = student.matron_assessed > 0;
-                        const lecturerDone = student.already_assessed > 0;
-                        
-                        let statusBadge = '';
-                        let buttonHtml = '';
-                        
-                        if (!matronDone) {
-                            statusBadge = '<span class="badge-secondary">Awaiting Matron Initial Assessment</span>';
-                            buttonHtml = '<button class="btn-secondary" disabled>Not Available</button>';
-                        } else if (matronDone && !lecturerDone) {
-                            statusBadge = '<span class="badge-info">Final Assessment Pending</span>';
-                            buttonHtml = `<button class="btn-primary assess-btn" 
-                                data-student='${JSON.stringify(student)}' 
-                                data-siteid="${siteId}">
-                                Start Final Assessment
-                            </button>`;
-                        } else {
-                            statusBadge = '<span class="badge-success">Final Assessment Complete</span>';
-                            buttonHtml = `<button class="btn-secondary assess-btn" 
-                                data-student='${JSON.stringify(student)}' 
-                                data-siteid="${siteId}">
-                                View Assessment
-                            </button>`;
-                        }
-                        
-                        html += `
-                            <div class="student-card">
-                                <h4>${student.name}</h4>
-                                <p>ID: ${student.student_number}</p>
-                                <p>Cohort: ${student.cohort}</p>
-                                <p>Role: ${student.role}</p>
-                                ${statusBadge}
-                                ${buttonHtml}
-                            </div>
-                        `;
-                    });
-                    html += '</div>';
-                    document.getElementById('studentsContainer').innerHTML = html;
-                    
-                    document.querySelectorAll('.assess-btn').forEach(btn => {
-                        btn.addEventListener('click', function() {
-                            const student = JSON.parse(this.dataset.student);
-                            const siteId = this.dataset.siteid;
-                            openAssessmentModal(student, siteId);
-                        });
-                    });
-                })
-                .catch(error => {
-                    document.getElementById('studentsContainer').innerHTML = '<p class="error-msg">Error loading students. Please try again.</p>';
-                });
+        document.querySelectorAll('.assess-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const student = JSON.parse(this.dataset.student);
+                const siteId = this.dataset.siteid;
+                openAssessmentModal(student, siteId);
+            });
         });
         
         function openAssessmentModal(student, siteId) {
@@ -816,24 +917,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             document.getElementById('studentRole').textContent = student.role || 'General Nursing';
             document.getElementById('studentCohort').textContent = student.cohort || '2024';
             
-            // If editing existing assessment, populate fields
-            if (student.already_assessed > 0) {
-                fetch('ajax/get_assessment.php?student_id=' + student.student_id + '&site_id=' + siteId + '&type=final')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data) {
-                            document.getElementById('punctuality').value = data.punctuality_score || '';
-                            document.getElementById('dressing').value = data.dressing_score || '';
-                            document.getElementById('communication').value = data.communication_score || '';
-                            document.getElementById('comments').value = data.comments || '';
-                        }
-                    });
-            } else {
-                document.getElementById('punctuality').value = '';
-                document.getElementById('dressing').value = '';
-                document.getElementById('communication').value = '';
-                document.getElementById('comments').value = '';
-            }
+            document.getElementById('punctuality').value = '';
+            document.getElementById('dressing').value = '';
+            document.getElementById('communication').value = '';
+            document.getElementById('comments').value = '';
             
             document.getElementById('assessmentModal').style.display = 'flex';
         }

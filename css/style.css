@@ -593,7 +593,7 @@
     text-align: center;
     color: #999;
     padding: 30px;
-    background: #f9f9f9;
+    background: #f9f9fa;
     border-radius: 12px;
 }
 
@@ -700,4 +700,35 @@
         border: 1px solid #ddd;
         break-inside: avoid;
     }
+}
+
+/* ============================================
+   ASSESSMENT PROGRESS BADGES (ADDED)
+   ============================================ */
+
+.badge-progress-warning {
+    background: #ffc107;
+    color: #333;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    display: inline-block;
+}
+
+.badge-progress-info {
+    background: #17a2b8;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    display: inline-block;
+}
+
+.badge-progress-success {
+    background: #28a745;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    display: inline-block;
 }
