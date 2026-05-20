@@ -13,10 +13,24 @@ $message = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['allocate'])) {
-    if ($coordinator->createAllocation($_POST['student_id'], $_POST['site_id'], $_POST['start_date'], $_POST['end_date'], $_POST['role'])) {
+    $result = $coordinator->allocateStudentWithNotification(
+        $_POST['student_id'], 
+        $_POST['site_id'], 
+        $_POST['start_date'], 
+        $_POST['end_date'], 
+        $_POST['role'], 
+        'email'
+    );
+
+    if ($result['success']) {
         $message = "✅ Allocation created successfully!";
+        if ($result['email_sent']) {
+            $message .= " Email notification sent to student.";
+        } else {
+            $message .= " Unable to send email notification. Please check SMTP settings.";
+        }
     } else {
-        $error = "❌ Failed to create allocation.";
+        $error = "❌ " . $result['message'];
     }
 }
 

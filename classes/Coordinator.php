@@ -1,5 +1,6 @@
 <?php
 require_once 'Database.php';
+require_once 'Notification.php';
 
 class Coordinator {
     private $conn;
@@ -80,16 +81,251 @@ class Coordinator {
     // ============ ALLOCATION OPERATIONS ============
     
     public function createAllocation($student_id, $site_id, $start_date, $end_date, $role) {
-        $query = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role) 
-                  VALUES (:student_id, :site_id, :start_date, :end_date, :role)";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':student_id', $student_id);
-        $stmt->bindParam(':site_id', $site_id);
-        $stmt->bindParam(':start_date', $start_date);
-        $stmt->bindParam(':end_date', $end_date);
-        $stmt->bindParam(':role', $role);
-        return $stmt->execute();
+        $result = $this->allocateStudentWithNotification(
+            $student_id,
+            $site_id,
+            $start_date,
+            $end_date,
+            $role,
+            'email'
+        );
+        return $result['success'];
     }
+    
+    // ============ NEW: ALLOCATION WITH NOTIFICATION ============
+    
+    public function allocateStudentWithNotification($student_id, $site_id, $start_date, $end_date, $role, $notify_by = 'email') {
+        try {
+            $this->conn->beginTransaction();
+            
+            // First, check if student already has active allocation
+            $checkQuery = "SELECT alloc_id FROM allocation 
+                           WHERE student_id = :student_id AND status = 'active'";
+            $checkStmt = $this->conn->prepare($checkQuery);
+            $checkStmt->bindParam(':student_id', $student_id);
+            $checkStmt->execute();
+            
+            if ($checkStmt->rowCount() > 0) {
+                return ['success' => false, 'message' => 'Student already has an active allocation'];
+            }
+            
+            // Insert allocation
+            $query = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) 
+                      VALUES (:student_id, :site_id, :start_date, :end_date, :role, 'active')";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':student_id', $student_id);
+            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':start_date', $start_date);
+            $stmt->bindParam(':end_date', $end_date);
+            $stmt->bindParam(':role', $role);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Failed to allocate student");
+            }
+            
+            $allocation_id = $this->conn->lastInsertId();
+            
+            // Get student details for notification
+            $studentQuery = "SELECT s.* FROM student s WHERE s.student_id = :student_id";
+            $studentStmt = $this->conn->prepare($studentQuery);
+            $studentStmt->bindParam(':student_id', $student_id);
+            $studentStmt->execute();
+            $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Get clinical site details
+            $siteQuery = "SELECT * FROM clinical_site WHERE site_id = :site_id";
+            $siteStmt = $this->conn->prepare($siteQuery);
+            $siteStmt->bindParam(':site_id', $site_id);
+            $siteStmt->execute();
+            $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Prepare notification message
+            $subject = "Clinical Placement Allocation - Daeyang University";
+            $message = "
+                <h3>Dear {$student['name']},</h3>
+                <p>You have been allocated to a clinical placement:</p>
+                <table style='border-collapse: collapse; width: 100%;'>
+                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td><td>{$site['name']}</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Location:</strong></td><td>{$site['location']}</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td><td>$start_date</td></tr>
+                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td><td>$end_date</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Role:</strong></td><td>$role</td></tr>
+                </table>
+                <p>Please report to the clinical site on your start date.</p>
+                <p>Best regards,<br>Nursing Department<br>Daeyang University</p>
+            ";
+            
+            $smsMessage = "Daeyang Uni: You've been allocated to {$site['name']} from $start_date to $end_date as $role. Report on start date.";
+            
+            // Send notification
+            $notification = new Notification($this->conn);
+            
+            // Save in-app notification
+            $notification->saveNotification(
+                $student_id, 
+                'student', 
+                'New Clinical Placement', 
+                "You have been allocated to {$site['name']} from $start_date to $end_date as $role.",
+                $allocation_id
+            );
+            
+            // Send email if requested
+            $emailSent = false;
+            $smsSent = false;
+            
+            if ($notify_by == 'email' || $notify_by == 'both') {
+                $emailSent = $notification->sendEmail($student['email'], $subject, $message);
+            }
+            
+            // Note: SMS requires a third-party service like Twilio, Africa's Talking, etc.
+            // For now, we'll just log it. You can integrate SMS service later.
+            if ($notify_by == 'sms' || $notify_by == 'both') {
+                // This would integrate with SMS API
+                // $smsSent = $this->sendSMS($student['phone'], $smsMessage);
+                $smsSent = false; // Placeholder until SMS service is integrated
+            }
+            
+            $this->conn->commit();
+            
+            return [
+                'success' => true, 
+                'message' => 'Student allocated successfully',
+                'email_sent' => $emailSent,
+                'sms_sent' => $smsSent,
+                'allocation_id' => $allocation_id
+            ];
+            
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+    
+    // ============ UPDATE EXISTING ALLOCATION WITH NOTIFICATION ============
+    
+    public function updateAllocationWithNotification($alloc_id, $site_id, $start_date, $end_date, $role, $notify_by = 'email') {
+        try {
+            $this->conn->beginTransaction();
+            
+            // Get current allocation and student details
+            $getQuery = "SELECT a.*, s.name as student_name, s.email, s.student_id 
+                        FROM allocation a 
+                        JOIN student s ON a.student_id = s.student_id 
+                        WHERE a.alloc_id = :alloc_id";
+            $getStmt = $this->conn->prepare($getQuery);
+            $getStmt->bindParam(':alloc_id', $alloc_id);
+            $getStmt->execute();
+            $allocation = $getStmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$allocation) {
+                return ['success' => false, 'message' => 'Allocation not found'];
+            }
+            
+            // Update allocation
+            $query = "UPDATE allocation 
+                      SET site_id = :site_id, start_date = :start_date, end_date = :end_date, role = :role 
+                      WHERE alloc_id = :alloc_id";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':start_date', $start_date);
+            $stmt->bindParam(':end_date', $end_date);
+            $stmt->bindParam(':role', $role);
+            $stmt->bindParam(':alloc_id', $alloc_id);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Failed to update allocation");
+            }
+            
+            // Get clinical site details
+            $siteQuery = "SELECT * FROM clinical_site WHERE site_id = :site_id";
+            $siteStmt = $this->conn->prepare($siteQuery);
+            $siteStmt->bindParam(':site_id', $site_id);
+            $siteStmt->execute();
+            $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Prepare notification message
+            $subject = "Clinical Placement Update - Daeyang University";
+            $message = "
+                <h3>Dear {$allocation['student_name']},</h3>
+                <p>Your clinical placement has been updated:</p>
+                <table style='border-collapse: collapse; width: 100%;'>
+                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td><td>{$site['name']}</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Location:</strong></td><td>{$site['location']}</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td><td>$start_date</td></tr>
+                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td><td>$end_date</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Role:</strong></td><td>$role</td></tr>
+                </table>
+                <p>Please report to the clinical site on your start date.</p>
+                <p>Best regards,<br>Nursing Department<br>Daeyang University</p>
+            ";
+            
+            // Send notification
+            $notification = new Notification($this->conn);
+            
+            // Save in-app notification
+            $notification->saveNotification(
+                $allocation['student_id'], 
+                'student', 
+                'Clinical Placement Updated', 
+                "Your clinical placement has been updated: {$site['name']} from $start_date to $end_date as $role.",
+                $alloc_id
+            );
+            
+            // Send email if requested
+            $emailSent = false;
+            if ($notify_by == 'email' || $notify_by == 'both') {
+                $emailSent = $notification->sendEmail($allocation['email'], $subject, $message);
+            }
+            
+            $this->conn->commit();
+            
+            return [
+                'success' => true, 
+                'message' => 'Allocation updated successfully',
+                'email_sent' => $emailSent
+            ];
+            
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+    
+    // ============ BULK ALLOCATION WITH NOTIFICATIONS ============
+    
+    public function bulkAllocateWithNotifications($allocations, $notify_by = 'email') {
+        $success_count = 0;
+        $failed_count = 0;
+        $results = [];
+        
+        foreach ($allocations as $allocation) {
+            $result = $this->allocateStudentWithNotification(
+                $allocation['student_id'],
+                $allocation['site_id'],
+                $allocation['start_date'],
+                $allocation['end_date'],
+                $allocation['role'],
+                $notify_by
+            );
+            
+            if ($result['success']) {
+                $success_count++;
+            } else {
+                $failed_count++;
+            }
+            $results[] = $result;
+        }
+        
+        return [
+            'success' => $success_count > 0,
+            'success_count' => $success_count,
+            'failed_count' => $failed_count,
+            'results' => $results,
+            'message' => "Allocated $success_count students successfully, $failed_count failed."
+        ];
+    }
+    
+    // ============ EXISTING ALLOCATION METHODS (UNCHANGED) ============
     
     public function getAllocations() {
         $query = "SELECT a.*, s.name as student_name, s.student_number, c.name as site_name 

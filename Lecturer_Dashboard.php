@@ -8,6 +8,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'lecturer') {
 
 require_once 'classes/Lecturer.php';
 require_once 'classes/Database.php';
+require_once 'classes/Notification.php';
 
 $db = new Database();
 $conn = $db->getConnection();
@@ -23,6 +24,11 @@ $lecturer_id = $lecturerData ? $lecturerData['lecturer_id'] : 1;
 $lecturer_name = $lecturerData ? $lecturerData['name'] : $_SESSION['name'];
 $lecturer_email = $lecturerData ? $lecturerData['email'] : $_SESSION['email'];
 
+// Initialize Notification class
+$notification = new Notification($conn);
+$unread_count = $notification->getUnreadCount($lecturer_id, 'lecturer');
+$notifications = $notification->getAllNotifications($lecturer_id, 'lecturer', 10);
+
 $lecturer = new Lecturer($lecturer_id);
 $sites = $lecturer->getClinicalSites();
 
@@ -30,6 +36,20 @@ $message = '';
 $error = '';
 $active_tab = $_GET['tab'] ?? 'assessment';
 $selected_site_id = isset($_GET['site_id']) ? $_GET['site_id'] : '';
+
+// Mark notification as read if requested
+if (isset($_GET['mark_read']) && is_numeric($_GET['mark_read'])) {
+    $notification->markAsRead($_GET['mark_read']);
+    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab);
+    exit();
+}
+
+// Mark all as read if requested
+if (isset($_GET['mark_all_read'])) {
+    $notification->markAllAsRead($lecturer_id, 'lecturer');
+    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab);
+    exit();
+}
 
 // Get students based on selected site
 $studentsAtSite = [];
@@ -135,6 +155,136 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         .btn-logout:hover {
             background: #dc3545;
+        }
+        
+        /* Notification Bell Styles */
+        .notification-bell {
+            position: relative;
+            cursor: pointer;
+            display: inline-block;
+        }
+        
+        .bell-icon {
+            font-size: 24px;
+            color: #c3a343;
+            background: none;
+            border: none;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #dc3545;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: bold;
+            min-width: 18px;
+            text-align: center;
+        }
+        
+        .notification-dropdown {
+            position: absolute;
+            right: 0;
+            top: 35px;
+            width: 350px;
+            max-height: 400px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+            overflow: hidden;
+        }
+        
+        .notification-dropdown.show {
+            display: block;
+        }
+        
+        .dropdown-header {
+            background: #4a2f1a;
+            color: white;
+            padding: 12px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .dropdown-header h4 {
+            margin: 0;
+            font-size: 1rem;
+        }
+        
+        .dropdown-header a {
+            color: #c3a343;
+            font-size: 0.75rem;
+            text-decoration: none;
+        }
+        
+        .dropdown-header a:hover {
+            text-decoration: underline;
+        }
+        
+        .dropdown-body {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        
+        .notification-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+        
+        .notification-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .notification-item.unread {
+            background: #f0f7ff;
+            border-left: 3px solid #c3a343;
+        }
+        
+        .notification-item.read {
+            background: white;
+        }
+        
+        .notification-title {
+            font-weight: 600;
+            color: #4a2f1a;
+            margin-bottom: 5px;
+            font-size: 0.85rem;
+        }
+        
+        .notification-message {
+            font-size: 0.75rem;
+            color: #666;
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+        
+        .notification-time {
+            font-size: 0.65rem;
+            color: #999;
+        }
+        
+        .no-notifications {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+            font-size: 0.85rem;
+        }
+        
+        .mark-read-btn {
+            font-size: 0.7rem;
+            color: #c3a343;
+            text-decoration: none;
+            margin-top: 5px;
+            display: inline-block;
         }
         
         .nav-tabs {
@@ -525,6 +675,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             .score-row { flex-direction: column; }
             .modal-buttons { flex-direction: column; }
             .profile-info { grid-template-columns: 1fr; }
+            .notification-dropdown {
+                width: 300px;
+                right: -50px;
+            }
         }
     </style>
 </head>
@@ -534,6 +688,40 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         <div class="user-info">
             <span>Welcome, <?php echo htmlspecialchars($lecturer_name); ?></span>
             <span class="role-badge">Lecturer</span>
+            
+            <!-- Notification Bell -->
+            <div class="notification-bell" id="notificationBell">
+                <button class="bell-icon" onclick="toggleNotifications()">🔔</button>
+                <?php if ($unread_count > 0): ?>
+                    <span class="notification-badge"><?php echo $unread_count; ?></span>
+                <?php endif; ?>
+                
+                <div class="notification-dropdown" id="notificationDropdown">
+                    <div class="dropdown-header">
+                        <h4>Notifications</h4>
+                        <?php if ($unread_count > 0): ?>
+                            <a href="?mark_all_read=1&tab=<?php echo $active_tab; ?>">Mark all as read</a>
+                        <?php endif; ?>
+                    </div>
+                    <div class="dropdown-body">
+                        <?php if (count($notifications) > 0): ?>
+                            <?php foreach ($notifications as $notif): ?>
+                                <div class="notification-item <?php echo $notif['is_read'] ? 'read' : 'unread'; ?>">
+                                    <div class="notification-title"><?php echo htmlspecialchars($notif['title']); ?></div>
+                                    <div class="notification-message"><?php echo htmlspecialchars(substr($notif['message'], 0, 100)); ?></div>
+                                    <div class="notification-time"><?php echo date('M d, H:i', strtotime($notif['created_at'])); ?></div>
+                                    <?php if (!$notif['is_read']): ?>
+                                        <a href="?mark_read=<?php echo $notif['notification_id']; ?>&tab=<?php echo $active_tab; ?>" class="mark-read-btn">Mark as read</a>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="no-notifications">No notifications yet</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            
             <a href="actions/logout.php" class="btn-logout">Logout</a>
         </div>
     </div>
@@ -639,12 +827,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                             <?php foreach ($history as $h): ?>
                             <tr>
                                 <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
-                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo $h['student_number']; ?>)<\/td>
-                                <td><?php echo htmlspecialchars($h['site_name']); ?><\/td>
-                                <td><?php echo $h['punctuality_score']; ?>/5<\/td>
-                                <td><?php echo $h['dressing_score']; ?>/5<\/td>
-                                <td><?php echo $h['communication_score']; ?>/5<\/td>
-                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...<\/td>
+                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)</td>
+                                <td><?php echo htmlspecialchars($h['site_name']); ?></td>
+                                <td><?php echo $h['punctuality_score']; ?>/5</td>
+                                <td><?php echo $h['dressing_score']; ?>/5</td>
+                                <td><?php echo $h['communication_score']; ?>/5</td>
+                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...</td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -739,74 +927,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     </div>
     
     <script>
-        document.getElementById('siteSelect').addEventListener('change', function() {
-            const siteId = this.value;
-            if (!siteId) {
-                document.getElementById('studentsContainer').innerHTML = '<p class="no-data">Please select a clinical site to view students.</p>';
-                return;
-            }
+        // Notification toggle function
+        function toggleNotifications() {
+            const dropdown = document.getElementById('notificationDropdown');
+            dropdown.classList.toggle('show');
+        }
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const bell = document.getElementById('notificationBell');
+            const dropdown = document.getElementById('notificationDropdown');
             
-            fetch('ajax/get_students_by_site.php?site_id=' + siteId)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        document.getElementById('studentsContainer').innerHTML = '<p class="no-data">No students allocated to this site.</p>';
-                        return;
-                    }
-                    
-                    let html = '<div class="students-grid">';
-                    data.forEach(student => {
-                        const matronDone = student.matron_assessed > 0;
-                        const lecturerDone = student.already_assessed > 0;
-                        
-                        let statusBadge = '';
-                        let buttonHtml = '';
-                        
-                        if (!matronDone) {
-                            statusBadge = '<span class="badge-secondary">Awaiting Matron Initial Assessment</span>';
-                            buttonHtml = '<button class="btn-secondary" disabled>Not Available</button>';
-                        } else if (matronDone && !lecturerDone) {
-                            statusBadge = '<span class="badge-info">Final Assessment Pending</span>';
-                            buttonHtml = `<button class="btn-primary assess-btn" 
-                                data-student='${JSON.stringify(student)}' 
-                                data-siteid="${siteId}">
-                                Start Final Assessment
-                            </button>`;
-                        } else {
-                            statusBadge = '<span class="badge-success">Final Assessment Complete</span>';
-                            buttonHtml = `<button class="btn-secondary assess-btn" 
-                                data-student='${JSON.stringify(student)}' 
-                                data-siteid="${siteId}">
-                                View Assessment
-                            </button>`;
-                        }
-                        
-                        html += `
-                            <div class="student-card">
-                                <h4>${student.name}</h4>
-                                <p>ID: ${student.student_number}</p>
-                                <p>Cohort: ${student.cohort}</p>
-                                <p>Role: ${student.role}</p>
-                                ${statusBadge}
-                                ${buttonHtml}
-                            </div>
-                        `;
-                    });
-                    html += '</div>';
-                    document.getElementById('studentsContainer').innerHTML = html;
-                    
-                    document.querySelectorAll('.assess-btn').forEach(btn => {
-                        btn.addEventListener('click', function() {
-                            const student = JSON.parse(this.dataset.student);
-                            const siteId = this.dataset.siteid;
-                            openAssessmentModal(student, siteId);
-                        });
-                    });
-                })
-                .catch(error => {
-                    document.getElementById('studentsContainer').innerHTML = '<p class="error-msg">Error loading students. Please try again.</p>';
-                });
+            if (bell && !bell.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
         });
+        
+        // Prevent dropdown from closing when clicking inside
+        const dropdown = document.getElementById('notificationDropdown');
+        if (dropdown) {
+            dropdown.addEventListener('click', function(event) {
+                event.stopPropagation();
+            });
+        }
         
         function openAssessmentModal(student, siteId) {
             document.getElementById('assessStudentId').value = student.student_id;

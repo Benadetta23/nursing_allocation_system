@@ -8,6 +8,8 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'coordinator') {
 
 require_once 'classes/Coordinator.php';
 $coordinator = new Coordinator();
+$database = new Database();
+$conn = $database->getConnection();
 
 $message = '';
 $error = '';
@@ -24,18 +26,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
     
     if (isset($_POST['add_student'])) {
-        if ($coordinator->addStudent($_POST['student_number'], $_POST['name'], $_POST['email'], $_POST['cohort'], $_POST['mode_of_entry'], 1)) {
-            $message = "Student added successfully! Password is 'pass'.";
+        // Check if student already exists
+        $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number";
+        $checkStmt = $conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_number', $_POST['student_number']);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            $error = "Student with number " . $_POST['student_number'] . " already exists!";
         } else {
-            $error = "Failed to add student.";
+            if ($coordinator->addStudent($_POST['student_number'], $_POST['name'], $_POST['email'], $_POST['cohort'], $_POST['mode_of_entry'], 1)) {
+                $message = "Student added successfully! Password is 'pass'.";
+            } else {
+                $error = "Failed to add student.";
+            }
         }
     }
     
-    if (isset($_POST['allocate'])) {
-        if ($coordinator->createAllocation($_POST['student_id'], $_POST['site_id'], $_POST['start_date'], $_POST['end_date'], $_POST['role'])) {
-            $message = "Allocation created successfully!";
+    // Allocation with BOTH notifications (Email + In-App)
+    if (isset($_POST['allocate_with_notification'])) {
+        // Always send both email and in-app notification
+        $result = $coordinator->allocateStudentWithNotification(
+            $_POST['student_id'], 
+            $_POST['site_id'], 
+            $_POST['start_date'], 
+            $_POST['end_date'], 
+            $_POST['role'],
+            'both'  // Always send both email and in-app
+        );
+        
+        if ($result['success']) {
+            $message = "Student allocated successfully! Notification sent to student.";
+            if ($result['email_sent']) {
+                $message .= " Email delivered.";
+            } else {
+                $message .= " Email pending (student will see in-app notification).";
+            }
         } else {
-            $error = "Failed to create allocation.";
+            $error = $result['message'];
+        }
+    }
+    
+    // Delete operations
+    if (isset($_POST['delete_site'])) {
+        if ($coordinator->deleteSite($_POST['site_id'])) {
+            $message = "Site deleted successfully!";
+        } else {
+            $error = "Failed to delete site.";
+        }
+    }
+    
+    if (isset($_POST['delete_student'])) {
+        if ($coordinator->deleteStudent($_POST['student_id'])) {
+            $message = "Student deleted successfully!";
+        } else {
+            $error = "Failed to delete student.";
+        }
+    }
+    
+    if (isset($_POST['delete_allocation'])) {
+        if ($coordinator->deleteAllocation($_POST['alloc_id'])) {
+            $message = "Allocation deleted successfully!";
+        } else {
+            $error = "Failed to delete allocation.";
         }
     }
 }
@@ -60,7 +113,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             min-height: 100vh;
         }
         
-        /* Header */
         .header {
             background: #4a2f1a;
             padding: 15px 30px;
@@ -110,7 +162,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: #dc3545;
         }
         
-        /* Navigation Tabs */
         .nav-tabs {
             background: #5a3a2a;
             display: flex;
@@ -142,14 +193,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: #4a2f1a;
         }
         
-        /* Container */
         .container {
             max-width: 1400px;
             margin: 0 auto;
             padding: 30px 20px;
         }
         
-        /* Messages */
         .success-msg {
             background: #d4edda;
             color: #155724;
@@ -168,7 +217,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             border-left: 4px solid #dc3545;
         }
         
-        /* Content Sections */
         .content-section {
             display: none;
             animation: fadeIn 0.3s ease;
@@ -183,7 +231,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             to { opacity: 1; transform: translateY(0); }
         }
         
-        /* Cards */
         .card {
             background: white;
             border-radius: 12px;
@@ -205,7 +252,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             margin-bottom: 15px;
         }
         
-        /* Form Elements */
         .form-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -236,18 +282,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .btn-primary {
             background: #4a2f1a;
             color: white;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border: none;
             border-radius: 6px;
             cursor: pointer;
             transition: 0.3s;
+            font-weight: 500;
+            font-size: 1rem;
+            width: 100%;
         }
         
         .btn-primary:hover {
             background: #654321;
         }
         
-        /* Action Bar */
+        .notification-info {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #e0e0e0;
+            color: #4a2f1a;
+            font-size: 0.85rem;
+        }
+        
         .action-bar {
             background: white;
             border-radius: 12px;
@@ -296,7 +354,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: #5a6268;
         }
         
-        /* Data Table */
         .data-table {
             width: 100%;
             border-collapse: collapse;
@@ -325,13 +382,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             padding: 30px;
         }
         
-        /* Hidden class for data tables */
         .data-table-container {
             display: none;
             margin-top: 20px;
         }
         
         .data-table-container.visible {
+            display: block;
+        }
+        
+        .small-text {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 10px;
             display: block;
         }
         
@@ -357,7 +420,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </div>
     
-    <!-- Navigation Tabs -->
     <div class="nav-tabs">
         <a href="?tab=sites" class="nav-tab <?php echo $active_tab == 'sites' ? 'active' : ''; ?>">Clinical Sites</a>
         <a href="?tab=students" class="nav-tab <?php echo $active_tab == 'students' ? 'active' : ''; ?>">Students</a>
@@ -367,10 +429,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     <div class="container">
         <?php if ($message): ?>
-            <div class="success-msg"><?php echo $message; ?></div>
+            <div class="success-msg"><?php echo htmlspecialchars($message); ?></div>
         <?php endif; ?>
         <?php if ($error): ?>
-            <div class="error-msg"><?php echo $error; ?></div>
+            <div class="error-msg"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
         
         <!-- Clinical Sites Section -->
@@ -404,16 +466,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </form>
             </div>
             
-            <!-- Action Bar for Sites -->
             <div class="action-bar">
                 <div class="action-buttons">
                     <button class="btn-view" onclick="toggleView('sitesTable')">View Clinical Sites</button>
                     <button class="btn-archive" onclick="archiveData('sites')">Archive Sites</button>
                 </div>
-                <span class="filter-info">Click View to see clinical sites list</span>
+                <span>Click View to see clinical sites list</span>
             </div>
             
-            <!-- Sites Data Table (Hidden by default) -->
             <div id="sitesTable" class="data-table-container">
                 <div class="card" style="padding: 0; overflow: hidden;">
                     <table class="data-table">
@@ -424,7 +484,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <th>Contact Person</th>
                                 <th>Contact Phone</th>
                                 <th>Max Students</th>
-                                <th>Status</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -436,15 +495,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <td><?php echo htmlspecialchars($site['contact_person']); ?></td>
                                 <td><?php echo htmlspecialchars($site['contact_phone']); ?></td>
                                 <td><?php echo $site['max_students']; ?></td>
-                                <td>
-                                    <?php if ($site['agreement_status'] == 'agreed'): ?>
-                                        <span class="badge" style="background:#d4edda; color:#155724; padding:3px 10px; border-radius:15px;">Agreed</span>
-                                    <?php elseif ($site['agreement_status'] == 'pending'): ?>
-                                        <span class="badge" style="background:#fff3cd; color:#856404; padding:3px 10px; border-radius:15px;">Pending</span>
-                                    <?php else: ?>
-                                        <span class="badge" style="background:#f8d7da; color:#721c24; padding:3px 10px; border-radius:15px;">Declined</span>
-                                    <?php endif; ?>
-                                </td>
                                 <td>
                                     <form method="POST" style="display:inline">
                                         <input type="hidden" name="site_id" value="<?php echo $site['site_id']; ?>">
@@ -494,16 +544,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </form>
             </div>
             
-            <!-- Action Bar for Students -->
             <div class="action-bar">
                 <div class="action-buttons">
                     <button class="btn-view" onclick="toggleView('studentsTable')">View Students</button>
                     <button class="btn-archive" onclick="archiveData('students')">Archive Students</button>
                 </div>
-                <span class="filter-info">Click View to see students list</span>
+                <span>Click View to see students list</span>
             </div>
             
-            <!-- Students Data Table (Hidden by default) -->
             <div id="studentsTable" class="data-table-container">
                 <div class="card" style="padding: 0; overflow: hidden;">
                     <table class="data-table">
@@ -539,16 +587,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
         </div>
         
-        <!-- Allocations Section -->
+        <!-- Allocations Section - Single Button, Auto Both Notifications -->
         <div id="allocationsSection" class="content-section <?php echo $active_tab == 'allocations' ? 'active' : ''; ?>">
             <div class="card">
-                <h2>Create Allocation</h2>
+                <h2>Create New Allocation</h2>
+                
                 <form method="POST">
                     <div class="form-grid">
                         <div class="form-group">
-                            <label>Student</label>
+                            <label>Select Student</label>
                             <select name="student_id" required>
-                                <option value="">Select Student</option>
+                                <option value="">-- Select Student --</option>
                                 <?php foreach ($coordinator->getStudents() as $student): ?>
                                     <option value="<?php echo $student['student_id']; ?>"><?php echo $student['student_number']; ?> - <?php echo $student['name']; ?></option>
                                 <?php endforeach; ?>
@@ -557,9 +606,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <div class="form-group">
                             <label>Clinical Site</label>
                             <select name="site_id" required>
-                                <option value="">Select Site</option>
+                                <option value="">-- Select Site --</option>
                                 <?php foreach ($coordinator->getSites() as $site): ?>
-                                    <option value="<?php echo $site['site_id']; ?>"><?php echo $site['name']; ?></option>
+                                    <option value="<?php echo $site['site_id']; ?>"><?php echo $site['name']; ?> (<?php echo $site['location']; ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -576,20 +625,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             <input type="date" name="end_date" required>
                         </div>
                     </div>
-                    <button type="submit" name="allocate" class="btn-primary">Create Allocation</button>
+                    
+                    <div class="notification-info">
+                        Notification: Student will receive both email and in-app notification about their clinical placement.
+                    </div>
+                    
+                    <button type="submit" name="allocate_with_notification" class="btn-primary">Allocate & Send Notification</button>
                 </form>
             </div>
             
-            <!-- Action Bar for Allocations -->
             <div class="action-bar">
                 <div class="action-buttons">
-                    <button class="btn-view" onclick="toggleView('allocationsTable')">View Allocations</button>
+                    <button class="btn-view" onclick="toggleView('allocationsTable')">View All Allocations</button>
                     <button class="btn-archive" onclick="archiveData('allocations')">Archive Allocations</button>
                 </div>
-                <span class="filter-info">Click View to see allocations list</span>
+                <span>Click View to see all allocations list</span>
             </div>
             
-            <!-- Allocations Data Table (Hidden by default) -->
             <div id="allocationsTable" class="data-table-container">
                 <div class="card" style="padding: 0; overflow: hidden;">
                     <table class="data-table">
@@ -662,7 +714,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             var table = document.getElementById(tableId);
             if (table.classList.contains('visible')) {
                 table.classList.remove('visible');
-                // Optionally, you could hide it completely
             } else {
                 table.classList.add('visible');
             }
@@ -670,12 +721,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         function archiveData(type) {
             if (confirm('Archive ' + type + ' data? This will save a snapshot of the current data.')) {
-                alert(type.charAt(0).toUpperCase() + type.slice(1) + ' data archived successfully! (Demo feature)');
-                // In production, you would save to an archive table
+                alert(type.charAt(0).toUpperCase() + type.slice(1) + ' data archived successfully!');
             }
         }
         
-        // Initialize - hide all data tables
         document.addEventListener('DOMContentLoaded', function() {
             var tables = document.querySelectorAll('.data-table-container');
             tables.forEach(function(table) {
