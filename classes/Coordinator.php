@@ -41,6 +41,16 @@ class Coordinator {
     // ============ STUDENT OPERATIONS ============
     
     public function addStudent($student_number, $name, $email, $cohort, $mode_of_entry, $coordinator_id) {
+        // Check if student already exists
+        $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_number', $student_number);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false; // Student already exists
+        }
+        
         $password_hash = password_hash('pass', PASSWORD_DEFAULT);
         $query = "INSERT INTO student (student_number, name, email, password_hash, cohort, mode_of_entry, coordinator_id) 
                   VALUES (:student_number, :name, :email, :password_hash, :cohort, :mode_of_entry, :coordinator_id)";
@@ -87,14 +97,14 @@ class Coordinator {
             $start_date,
             $end_date,
             $role,
-            'email'
+            'both'  // Default to both email and in-app
         );
         return $result['success'];
     }
     
-    // ============ NEW: ALLOCATION WITH NOTIFICATION ============
+    // ============ ALLOCATION WITH NOTIFICATION ============
     
-    public function allocateStudentWithNotification($student_id, $site_id, $start_date, $end_date, $role, $notify_by = 'email') {
+    public function allocateStudentWithNotification($student_id, $site_id, $start_date, $end_date, $role, $notify_by = 'both') {
         try {
             $this->conn->beginTransaction();
             
@@ -145,23 +155,31 @@ class Coordinator {
                 <h3>Dear {$student['name']},</h3>
                 <p>You have been allocated to a clinical placement:</p>
                 <table style='border-collapse: collapse; width: 100%;'>
-                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td><td>{$site['name']}</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Location:</strong></td><td>{$site['location']}</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td><td>$start_date</td></tr>
-                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td><td>$end_date</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Role:</strong></td><td>$role</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td>
+                        <td>{$site['name']}</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Location:</strong></td>
+                        <td>{$site['location']}</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td>
+                        <td>$start_date</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td>
+                        <td>$end_date</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Role:</strong></td>
+                        <td>$role</td>
+                    </tr>
                 </table>
                 <p>Please report to the clinical site on your start date.</p>
                 <p>Best regards,<br>Nursing Department<br>Daeyang University</p>
             ";
             
-            $smsMessage = "Daeyang Uni: You've been allocated to {$site['name']} from $start_date to $end_date as $role. Report on start date.";
-            
             // Send notification
             $notification = new Notification($this->conn);
             
-            // Save in-app notification
-            $notification->saveNotification(
+            // Save in-app notification (ALWAYS)
+            $inAppSent = $notification->saveNotification(
                 $student_id, 
                 'student', 
                 'New Clinical Placement', 
@@ -171,18 +189,8 @@ class Coordinator {
             
             // Send email if requested
             $emailSent = false;
-            $smsSent = false;
-            
             if ($notify_by == 'email' || $notify_by == 'both') {
                 $emailSent = $notification->sendEmail($student['email'], $subject, $message);
-            }
-            
-            // Note: SMS requires a third-party service like Twilio, Africa's Talking, etc.
-            // For now, we'll just log it. You can integrate SMS service later.
-            if ($notify_by == 'sms' || $notify_by == 'both') {
-                // This would integrate with SMS API
-                // $smsSent = $this->sendSMS($student['phone'], $smsMessage);
-                $smsSent = false; // Placeholder until SMS service is integrated
             }
             
             $this->conn->commit();
@@ -191,7 +199,7 @@ class Coordinator {
                 'success' => true, 
                 'message' => 'Student allocated successfully',
                 'email_sent' => $emailSent,
-                'sms_sent' => $smsSent,
+                'in_app_sent' => $inAppSent,
                 'allocation_id' => $allocation_id
             ];
             
@@ -203,7 +211,7 @@ class Coordinator {
     
     // ============ UPDATE EXISTING ALLOCATION WITH NOTIFICATION ============
     
-    public function updateAllocationWithNotification($alloc_id, $site_id, $start_date, $end_date, $role, $notify_by = 'email') {
+    public function updateAllocationWithNotification($alloc_id, $site_id, $start_date, $end_date, $role, $notify_by = 'both') {
         try {
             $this->conn->beginTransaction();
             
@@ -249,11 +257,21 @@ class Coordinator {
                 <h3>Dear {$allocation['student_name']},</h3>
                 <p>Your clinical placement has been updated:</p>
                 <table style='border-collapse: collapse; width: 100%;'>
-                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td><td>{$site['name']}</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Location:</strong></td><td>{$site['location']}</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td><td>$start_date</td></tr>
-                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td><td>$end_date</td></tr>
-                    <tr><td style='padding: 8px;'><strong>Role:</strong></td><td>$role</td></tr>
+                    <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td>
+                        <td>{$site['name']}</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Location:</strong></td>
+                        <td>{$site['location']}</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Start Date:</strong></td>
+                        <td>$start_date</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>End Date:</strong></td>
+                        <td>$end_date</td>
+                    </tr>
+                    <tr><td style='padding: 8px;'><strong>Role:</strong></td>
+                        <td>$role</td>
+                    </tr>
                 </table>
                 <p>Please report to the clinical site on your start date.</p>
                 <p>Best regards,<br>Nursing Department<br>Daeyang University</p>
@@ -293,7 +311,7 @@ class Coordinator {
     
     // ============ BULK ALLOCATION WITH NOTIFICATIONS ============
     
-    public function bulkAllocateWithNotifications($allocations, $notify_by = 'email') {
+    public function bulkAllocateWithNotifications($allocations, $notify_by = 'both') {
         $success_count = 0;
         $failed_count = 0;
         $results = [];
@@ -325,7 +343,7 @@ class Coordinator {
         ];
     }
     
-    // ============ EXISTING ALLOCATION METHODS (UNCHANGED) ============
+    // ============ ALLOCATION METHODS ============
     
     public function getAllocations() {
         $query = "SELECT a.*, s.name as student_name, s.student_number, c.name as site_name 
@@ -400,37 +418,213 @@ class Coordinator {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    public function getAssessmentSummary() {
-        $query = "SELECT s.student_id, s.name as student_name, s.student_number,
-                         ROUND(AVG(a.punctuality_score), 1) as avg_punctuality,
-                         ROUND(AVG(a.dressing_score), 1) as avg_dressing,
-                         ROUND(AVG(a.communication_score), 1) as avg_communication,
-                         ROUND(AVG((a.punctuality_score + a.dressing_score + a.communication_score) / 3), 1) as overall_average,
-                         COUNT(a.assess_id) as assessment_count
-                  FROM student s
-                  LEFT JOIN assessment a ON s.student_id = a.student_id
-                  GROUP BY s.student_id
-                  ORDER BY overall_average DESC";
+    // ============ NEW ADVANCED REPORTING METHODS ============
+    
+    // Get all students grouped by clinical site (detailed)
+    public function getStudentsByClinicalSiteReport() {
+        $query = "SELECT 
+                    c.site_id,
+                    c.name as site_name,
+                    c.location,
+                    c.contact_person,
+                    c.contact_phone,
+                    c.max_students,
+                    COUNT(DISTINCT a.student_id) as total_students,
+                    GROUP_CONCAT(
+                        CONCAT(s.name, ' (', s.student_number, ')') 
+                        ORDER BY s.name 
+                        SEPARATOR '||'
+                    ) as students_list
+                  FROM clinical_site c
+                  LEFT JOIN allocation a ON c.site_id = a.site_id AND a.status = 'active'
+                  LEFT JOIN student s ON a.student_id = s.student_id
+                  GROUP BY c.site_id
+                  ORDER BY c.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Convert students_list from || separated to array
+        foreach ($results as &$row) {
+            if ($row['students_list']) {
+                $row['students'] = explode('||', $row['students_list']);
+            } else {
+                $row['students'] = [];
+            }
+        }
+        return $results;
+    }
+    
+    // Get students for a specific clinical site (FIXED VERSION)
+    public function getStudentsBySpecificSite($site_id) {
+        $query = "SELECT 
+                    c.site_id,
+                    c.name as site_name,
+                    c.location,
+                    c.contact_person,
+                    c.contact_phone,
+                    c.max_students,
+                    COUNT(DISTINCT a.student_id) as total_students,
+                    GROUP_CONCAT(
+                        CONCAT(s.name, ' (', s.student_number, ')') 
+                        ORDER BY s.name 
+                        SEPARATOR '||'
+                    ) as students_list
+                  FROM clinical_site c
+                  LEFT JOIN allocation a ON c.site_id = a.site_id AND a.status = 'active'
+                  LEFT JOIN student s ON a.student_id = s.student_id
+                  WHERE c.site_id = :site_id
+                  GROUP BY c.site_id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($result && $result['students_list']) {
+            $result['students'] = explode('||', $result['students_list']);
+        } else if ($result) {
+            $result['students'] = [];
+        }
+        
+        // Return as array with one site (or empty array if no site found)
+        return $result ? [$result] : [];
+    }
+    
+    // Debug method to get site by ID
+    public function getSiteById($site_id) {
+        $query = "SELECT * FROM clinical_site WHERE site_id = :site_id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+    
+    // Get assessment report with pass/fail status
+    public function getAssessmentReport($cohort = null, $site_id = null) {
+        $sql = "SELECT 
+                    s.student_id,
+                    s.student_number,
+                    s.name as student_name,
+                    s.cohort,
+                    s.mode_of_entry,
+                    c.site_id,
+                    c.name as site_name,
+                    -- Matron Assessment (Initial)
+                    MAX(CASE WHEN a.assessor_type = 'matron' THEN a.punctuality_score END) as matron_punctuality,
+                    MAX(CASE WHEN a.assessor_type = 'matron' THEN a.dressing_score END) as matron_dressing,
+                    MAX(CASE WHEN a.assessor_type = 'matron' THEN a.communication_score END) as matron_communication,
+                    MAX(CASE WHEN a.assessor_type = 'matron' THEN a.assessment_date END) as matron_date,
+                    -- Lecturer Assessment (Final)
+                    MAX(CASE WHEN a.assessor_type = 'lecturer' THEN a.punctuality_score END) as lecturer_punctuality,
+                    MAX(CASE WHEN a.assessor_type = 'lecturer' THEN a.dressing_score END) as lecturer_dressing,
+                    MAX(CASE WHEN a.assessor_type = 'lecturer' THEN a.communication_score END) as lecturer_communication,
+                    MAX(CASE WHEN a.assessor_type = 'lecturer' THEN a.assessment_date END) as lecturer_date,
+                    -- Comments
+                    MAX(CASE WHEN a.assessor_type = 'matron' THEN a.comments END) as matron_comments,
+                    MAX(CASE WHEN a.assessor_type = 'lecturer' THEN a.comments END) as lecturer_comments,
+                    -- Allocation
+                    al.start_date,
+                    al.end_date,
+                    al.role
+                FROM student s
+                LEFT JOIN allocation al ON s.student_id = al.student_id AND al.status = 'active'
+                LEFT JOIN clinical_site c ON al.site_id = c.site_id
+                LEFT JOIN assessment a ON s.student_id = a.student_id
+                WHERE 1=1";
+        
+        if ($cohort) {
+            $sql .= " AND s.cohort = :cohort";
+        }
+        if ($site_id) {
+            $sql .= " AND c.site_id = :site_id";
+        }
+        
+        $sql .= " GROUP BY s.student_id, s.student_number, s.name
+                  ORDER BY s.name";
+        
+        $stmt = $this->conn->prepare($sql);
+        if ($cohort) {
+            $stmt->bindParam(':cohort', $cohort);
+        }
+        if ($site_id) {
+            $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Calculate final scores and pass/fail status
+        foreach ($results as &$row) {
+            // Calculate matron average
+            if ($row['matron_punctuality'] && $row['matron_dressing'] && $row['matron_communication']) {
+                $row['matron_average'] = round(
+                    ($row['matron_punctuality'] + $row['matron_dressing'] + $row['matron_communication']) / 3, 
+                    1
+                );
+            } else {
+                $row['matron_average'] = null;
+            }
+            
+            // Calculate lecturer average (final grade)
+            if ($row['lecturer_punctuality'] && $row['lecturer_dressing'] && $row['lecturer_communication']) {
+                $row['final_average'] = round(
+                    ($row['lecturer_punctuality'] + $row['lecturer_dressing'] + $row['lecturer_communication']) / 3, 
+                    1
+                );
+                
+                // Determine grade and pass/fail
+                if ($row['final_average'] >= 3.0) {
+                    $row['final_grade'] = $this->getLetterGrade($row['final_average']);
+                    $row['status'] = 'PASS';
+                    $row['status_class'] = 'pass';
+                } else {
+                    $row['final_grade'] = $this->getLetterGrade($row['final_average']);
+                    $row['status'] = 'FAIL';
+                    $row['status_class'] = 'fail';
+                }
+            } else {
+                $row['final_average'] = null;
+                $row['final_grade'] = 'N/A';
+                $row['status'] = 'PENDING';
+                $row['status_class'] = 'pending';
+            }
+        }
+        
+        return $results;
+    }
+    
+    // Get letter grade based on score
+    private function getLetterGrade($score) {
+        if ($score >= 4.5) return 'A+';
+        if ($score >= 4.0) return 'A';
+        if ($score >= 3.5) return 'B+';
+        if ($score >= 3.0) return 'B';
+        if ($score >= 2.5) return 'C';
+        if ($score >= 2.0) return 'D';
+        return 'F';
+    }
+    
+    // Get all cohorts for filter
+    public function getAllCohorts() {
+        $query = "SELECT DISTINCT cohort FROM student WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    public function getSiteAssessmentSummary() {
-        $query = "SELECT c.site_id, c.name as site_name,
-                         COUNT(DISTINCT a.student_id) as students_assessed,
-                         ROUND(AVG(ass.punctuality_score), 1) as avg_punctuality,
-                         ROUND(AVG(ass.dressing_score), 1) as avg_dressing,
-                         ROUND(AVG(ass.communication_score), 1) as avg_communication,
-                         COUNT(ass.assess_id) as total_assessments
-                  FROM clinical_site c
-                  LEFT JOIN allocation a ON c.site_id = a.site_id
-                  LEFT JOIN assessment ass ON a.student_id = ass.student_id AND a.site_id = ass.site_id
-                  GROUP BY c.site_id
-                  ORDER BY c.name";
+    // Get summary statistics for dashboard
+    public function getReportSummary() {
+        $query = "SELECT 
+                    (SELECT COUNT(*) FROM student) as total_students,
+                    (SELECT COUNT(*) FROM clinical_site) as total_sites,
+                    (SELECT COUNT(*) FROM allocation WHERE status = 'active') as active_placements,
+                    (SELECT COUNT(*) FROM assessment WHERE assessor_type = 'lecturer') as completed_assessments,
+                    (SELECT COUNT(*) FROM assessment WHERE assessor_type = 'lecturer' AND 
+                        ((punctuality_score + dressing_score + communication_score) / 3) >= 3.0) as passed_students,
+                    (SELECT COUNT(*) FROM assessment WHERE assessor_type = 'lecturer' AND 
+                        ((punctuality_score + dressing_score + communication_score) / 3) < 3.0) as failed_students";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
     // ============ FILTERED REPORT OPERATIONS ============
@@ -451,7 +645,7 @@ class Coordinator {
         
         $stmt = $this->conn->prepare($sql);
         if ($site_id) {
-            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
         }
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -477,7 +671,7 @@ class Coordinator {
         
         $stmt = $this->conn->prepare($sql);
         if ($site_id) {
-            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
         }
         if ($cohort) {
             $stmt->bindParam(':cohort', $cohort);
@@ -511,7 +705,7 @@ class Coordinator {
             $stmt->bindParam(':cohort', $cohort);
         }
         if ($student_id) {
-            $stmt->bindParam(':student_id', $student_id);
+            $stmt->bindParam(':student_id', $student_id, PDO::PARAM_INT);
         }
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -536,7 +730,7 @@ class Coordinator {
         
         $stmt = $this->conn->prepare($sql);
         if ($site_id) {
-            $stmt->bindParam(':site_id', $site_id);
+            $stmt->bindParam(':site_id', $site_id, PDO::PARAM_INT);
         }
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

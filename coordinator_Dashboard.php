@@ -7,6 +7,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'coordinator') {
 }
 
 require_once 'classes/Coordinator.php';
+require_once 'classes/Database.php';
 $coordinator = new Coordinator();
 $database = new Database();
 $conn = $database->getConnection();
@@ -26,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
     
     if (isset($_POST['add_student'])) {
-        // Check if student already exists
         $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number";
         $checkStmt = $conn->prepare($checkQuery);
         $checkStmt->bindParam(':student_number', $_POST['student_number']);
@@ -43,31 +43,66 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // Allocation with BOTH notifications (Email + In-App)
+    // Archive student
+    if (isset($_POST['archive_student'])) {
+        $student_id = $_POST['student_id'];
+        
+        $checkAlloc = "SELECT alloc_id FROM allocation WHERE student_id = :student_id AND status = 'active'";
+        $checkStmt = $conn->prepare($checkAlloc);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            $error = "Cannot archive student with active allocation.";
+        } else {
+            $getStudent = "SELECT * FROM student WHERE student_id = :student_id";
+            $getStmt = $conn->prepare($getStudent);
+            $getStmt->bindParam(':student_id', $student_id);
+            $getStmt->execute();
+            $student = $getStmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($student) {
+                $archiveQuery = "INSERT INTO student_archive (student_id, student_number, name, email, cohort, mode_of_entry, archived_date) 
+                                 VALUES (:student_id, :student_number, :name, :email, :cohort, :mode_of_entry, NOW())";
+                $archiveStmt = $conn->prepare($archiveQuery);
+                $archiveStmt->bindParam(':student_id', $student['student_id']);
+                $archiveStmt->bindParam(':student_number', $student['student_number']);
+                $archiveStmt->bindParam(':name', $student['name']);
+                $archiveStmt->bindParam(':email', $student['email']);
+                $archiveStmt->bindParam(':cohort', $student['cohort']);
+                $archiveStmt->bindParam(':mode_of_entry', $student['mode_of_entry']);
+                
+                if ($archiveStmt->execute()) {
+                    $deleteQuery = "DELETE FROM student WHERE student_id = :student_id";
+                    $deleteStmt = $conn->prepare($deleteQuery);
+                    $deleteStmt->bindParam(':student_id', $student_id);
+                    $deleteStmt->execute();
+                    $message = "Student archived successfully!";
+                } else {
+                    $error = "Failed to archive student.";
+                }
+            }
+        }
+    }
+    
+    // Allocation
     if (isset($_POST['allocate_with_notification'])) {
-        // Always send both email and in-app notification
         $result = $coordinator->allocateStudentWithNotification(
             $_POST['student_id'], 
             $_POST['site_id'], 
             $_POST['start_date'], 
             $_POST['end_date'], 
             $_POST['role'],
-            'both'  // Always send both email and in-app
+            'both'
         );
         
         if ($result['success']) {
-            $message = "Student allocated successfully! Notification sent to student.";
-            if ($result['email_sent']) {
-                $message .= " Email delivered.";
-            } else {
-                $message .= " Email pending (student will see in-app notification).";
-            }
+            $message = "Student allocated successfully! Notification sent.";
         } else {
             $error = $result['message'];
         }
     }
     
-    // Delete operations
     if (isset($_POST['delete_site'])) {
         if ($coordinator->deleteSite($_POST['site_id'])) {
             $message = "Site deleted successfully!";
@@ -247,11 +282,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-size: 1.3rem;
         }
         
-        .card h3 {
-            color: #4a2f1a;
-            margin-bottom: 15px;
-        }
-        
         .form-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -339,21 +369,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: #654321;
         }
         
-        .btn-archive {
-            background: #6c757d;
-            color: white;
-            padding: 8px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: 0.3s;
-        }
-        
-        .btn-archive:hover {
-            background: #5a6268;
-        }
-        
         .data-table {
             width: 100%;
             border-collapse: collapse;
@@ -376,6 +391,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: #f5f5f5;
         }
         
+        .data-table td {
+            vertical-align: middle;
+        }
+        
+        .btn-delete {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+        
+        .btn-archive-student {
+            background: #ffc107;
+            color: #333;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-right: 5px;
+        }
+        
+        .btn-delete:hover {
+            background: #c82333;
+        }
+        
+        .btn-archive-student:hover {
+            background: #e0a800;
+        }
+        
         .no-data {
             text-align: center;
             color: #999;
@@ -388,13 +436,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         
         .data-table-container.visible {
-            display: block;
-        }
-        
-        .small-text {
-            font-size: 0.75rem;
-            color: #666;
-            margin-top: 10px;
             display: block;
         }
         
@@ -424,6 +465,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <a href="?tab=sites" class="nav-tab <?php echo $active_tab == 'sites' ? 'active' : ''; ?>">Clinical Sites</a>
         <a href="?tab=students" class="nav-tab <?php echo $active_tab == 'students' ? 'active' : ''; ?>">Students</a>
         <a href="?tab=allocations" class="nav-tab <?php echo $active_tab == 'allocations' ? 'active' : ''; ?>">Allocations</a>
+        <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
+        <a href="auto_allocate.php" class="nav-tab">Auto Allocate</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
     </div>
     
@@ -469,13 +512,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="action-bar">
                 <div class="action-buttons">
                     <button class="btn-view" onclick="toggleView('sitesTable')">View Clinical Sites</button>
-                    <button class="btn-archive" onclick="archiveData('sites')">Archive Sites</button>
                 </div>
                 <span>Click View to see clinical sites list</span>
             </div>
             
             <div id="sitesTable" class="data-table-container">
-                <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="card" style="padding: 0; overflow: hidden; overflow-x: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -498,7 +540,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <td>
                                     <form method="POST" style="display:inline">
                                         <input type="hidden" name="site_id" value="<?php echo $site['site_id']; ?>">
-                                        <button type="submit" name="delete_site" style="background:#dc3545; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="return confirm('Delete this site?')">Delete</button>
+                                        <button type="submit" name="delete_site" class="btn-delete" onclick="return confirm('Delete this site?')">Delete</button>
                                     </form>
                                 </td>
                             </tr>
@@ -547,13 +589,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="action-bar">
                 <div class="action-buttons">
                     <button class="btn-view" onclick="toggleView('studentsTable')">View Students</button>
-                    <button class="btn-archive" onclick="archiveData('students')">Archive Students</button>
                 </div>
                 <span>Click View to see students list</span>
             </div>
             
             <div id="studentsTable" class="data-table-container">
-                <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="card" style="padding: 0; overflow: hidden; overflow-x: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -562,11 +603,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <th>Email</th>
                                 <th>Cohort</th>
                                 <th>Mode of Entry</th>
-                                <th>Action</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($coordinator->getStudents() as $student): ?>
+                            <?php 
+                            $students = $coordinator->getStudents();
+                            foreach ($students as $student): 
+                            ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($student['student_number']); ?></td>
                                 <td><?php echo htmlspecialchars($student['name']); ?></td>
@@ -576,18 +620,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <td>
                                     <form method="POST" style="display:inline">
                                         <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
-                                        <button type="submit" name="delete_student" style="background:#dc3545; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="return confirm('Delete this student?')">Delete</button>
+                                        <button type="submit" name="archive_student" class="btn-archive-student" onclick="return confirm('Archive this student?')">Archive</button>
+                                    </form>
+                                    <form method="POST" style="display:inline">
+                                        <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
+                                        <button type="submit" name="delete_student" class="btn-delete" onclick="return confirm('Delete this student permanently?')">Delete</button>
                                     </form>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
+                            
+                            <?php if (empty($students)): ?>
+                            <tr>
+                                <td colspan="6" class="no-data">No students found. Add students using the form above or Bulk Upload.\(
+                            </td>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
         
-        <!-- Allocations Section - Single Button, Auto Both Notifications -->
+        <!-- Allocations Section -->
         <div id="allocationsSection" class="content-section <?php echo $active_tab == 'allocations' ? 'active' : ''; ?>">
             <div class="card">
                 <h2>Create New Allocation</h2>
@@ -599,7 +653,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             <select name="student_id" required>
                                 <option value="">-- Select Student --</option>
                                 <?php foreach ($coordinator->getStudents() as $student): ?>
-                                    <option value="<?php echo $student['student_id']; ?>"><?php echo $student['student_number']; ?> - <?php echo $student['name']; ?></option>
+                                    <option value="<?php echo $student['student_id']; ?>"><?php echo htmlspecialchars($student['student_number']); ?> - <?php echo htmlspecialchars($student['name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -608,7 +662,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             <select name="site_id" required>
                                 <option value="">-- Select Site --</option>
                                 <?php foreach ($coordinator->getSites() as $site): ?>
-                                    <option value="<?php echo $site['site_id']; ?>"><?php echo $site['name']; ?> (<?php echo $site['location']; ?>)</option>
+                                    <option value="<?php echo $site['site_id']; ?>"><?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -630,20 +684,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         Notification: Student will receive both email and in-app notification about their clinical placement.
                     </div>
                     
-                    <button type="submit" name="allocate_with_notification" class="btn-primary">Allocate & Send Notification</button>
+                    <button type="submit" name="allocate_with_notification" class="btn-primary">Allocate and Send Notification</button>
                 </form>
             </div>
             
             <div class="action-bar">
                 <div class="action-buttons">
                     <button class="btn-view" onclick="toggleView('allocationsTable')">View All Allocations</button>
-                    <button class="btn-archive" onclick="archiveData('allocations')">Archive Allocations</button>
                 </div>
                 <span>Click View to see all allocations list</span>
             </div>
             
             <div id="allocationsTable" class="data-table-container">
-                <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="card" style="padding: 0; overflow: hidden; overflow-x: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -680,7 +733,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         echo '<span style="color:#28a745;">' . $days . ' days left</span>';
                                     }
                                     ?>
-                                </td>
+                                 </td>
                                 <td>
                                     <?php 
                                     if ($alloc['placement_status'] == 'Active') {
@@ -693,14 +746,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         echo '<span style="background:#6c757d; color:white; padding:3px 10px; border-radius:15px;">Completed</span>';
                                     }
                                     ?>
-                                </td>
+                                 </td>
                                 <td>
                                     <form method="POST" style="display:inline">
                                         <input type="hidden" name="alloc_id" value="<?php echo $alloc['alloc_id']; ?>">
-                                        <button type="submit" name="delete_allocation" style="background:#dc3545; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="return confirm('Delete this allocation?')">Delete</button>
+                                        <button type="submit" name="delete_allocation" class="btn-delete" onclick="return confirm('Delete this allocation?')">Delete</button>
                                     </form>
-                                </td>
-                            </tr>
+                                 </td>
+                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>

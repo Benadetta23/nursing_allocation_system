@@ -9,46 +9,236 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'coordinator') {
 require_once 'classes/Coordinator.php';
 $coordinator = new Coordinator();
 
-$active_tab = $_GET['tab'] ?? 'summary';
-$report_type = $_GET['report'] ?? 'students_by_site';
-$filter_site = $_GET['filter_site'] ?? '';
-$filter_cohort = $_GET['filter_cohort'] ?? '';
-$filter_student = $_GET['filter_student'] ?? '';
-$date_from = $_GET['date_from'] ?? '';
-$date_to = $_GET['date_to'] ?? '';
+$report_type = $_POST['report_type'] ?? $_GET['report_type'] ?? 'clinical_sites';
+$filter_site = $_POST['filter_site'] ?? $_GET['filter_site'] ?? '';
+$filter_status = $_POST['filter_status'] ?? $_GET['filter_status'] ?? '';
+$export_format = $_POST['export_format'] ?? $_GET['export'] ?? '';
+$generated = false;
+$noDataAlert = '';
 
-// Get all sites for filter dropdown
+// Get data for filters
 $sites = $coordinator->getSites();
-$students = $coordinator->getStudents();
-$cohortList = ['2021', '2022', '2023', '2024'];
 
-// Get filtered data based on report type
-if ($report_type == 'students_by_site') {
-    $reportData = $coordinator->getStudentsBySiteFiltered($filter_site);
-    $reportTitle = 'Students by Clinical Site';
-    $tableHeaders = ['Site Name', 'Location', 'Total Students', 'Students List'];
-} elseif ($report_type == 'pending_assessments') {
-    $reportData = $coordinator->getPendingAssessmentsFiltered($filter_site, $filter_cohort);
-    $reportTitle = 'Pending Assessments';
-    $tableHeaders = ['Student Name', 'Student ID', 'Clinical Site', 'Role', 'Start Date', 'End Date'];
-} elseif ($report_type == 'assessment_summary') {
-    $reportData = $coordinator->getAssessmentSummaryFiltered($filter_cohort, $filter_student);
-    $reportTitle = 'Assessment Summary';
-    $tableHeaders = ['Student Name', 'Student ID', 'Cohort', 'Punctuality', 'Dressing', 'Communication', 'Overall', 'Assessments'];
-} elseif ($report_type == 'site_summary') {
-    $reportData = $coordinator->getSiteAssessmentSummaryFiltered($filter_site);
-    $reportTitle = 'Site Performance Summary';
-    $tableHeaders = ['Site Name', 'Students Assessed', 'Average Punctuality', 'Average Dressing', 'Average Communication', 'Total Assessments'];
-} else {
-    $reportData = [];
-    $reportTitle = 'Reports';
-    $tableHeaders = [];
+// Debug: Check if filter_site is being received correctly
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && !empty($filter_site)) {
+    error_log("Selected site ID: " . $filter_site);
 }
 
-// Generate report with date range
-$generatedReportData = [];
-if ($date_from && $date_to) {
-    $generatedReportData = $coordinator->getReportByDateRange($date_from, $date_to);
+// Get report data based on selections
+$reportData = [];
+$reportTitle = '';
+$tableHeaders = [];
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST' || isset($_GET['generate'])) {
+    $generated = true;
+    
+    if ($report_type == 'clinical_sites') {
+        if (!empty($filter_site)) {
+            // Get specific site report using the dedicated method
+            $siteData = $coordinator->getStudentsBySpecificSite($filter_site);
+            $reportData = $siteData;
+            
+            // Get site name for title
+            $siteName = '';
+            foreach ($sites as $s) {
+                if ($s['site_id'] == $filter_site) {
+                    $siteName = $s['name'];
+                    break;
+                }
+            }
+            $reportTitle = 'Clinical Site Report - ' . $siteName;
+            
+            // Check if site has no students
+            if (empty($reportData) || (isset($reportData[0]['total_students']) && $reportData[0]['total_students'] == 0)) {
+                $noDataAlert = "No students found allocated to " . $siteName;
+                $reportData = [];
+            }
+        } else {
+            // Get all sites report
+            $reportData = $coordinator->getStudentsByClinicalSiteReport();
+            $reportTitle = 'All Clinical Sites Report';
+            
+            if (empty($reportData)) {
+                $noDataAlert = "No clinical sites found. Please add clinical sites first.";
+            }
+        }
+        $tableHeaders = ['Site Name', 'Location', 'Contact Person', 'Contact Phone', 'Total Students', 'Students List'];
+        
+    } elseif ($report_type == 'assessment') {
+        // Get assessment report with pass/fail filter
+        $allAssessments = $coordinator->getAssessmentReport('', $filter_site);
+        
+        // Filter by status if selected
+        foreach ($allAssessments as $assessment) {
+            if ($filter_status == 'pass' && $assessment['status'] == 'PASS') {
+                $reportData[] = $assessment;
+            } elseif ($filter_status == 'fail' && $assessment['status'] == 'FAIL') {
+                $reportData[] = $assessment;
+            } elseif ($filter_status == 'pending' && $assessment['status'] == 'PENDING') {
+                $reportData[] = $assessment;
+            } elseif (empty($filter_status)) {
+                $reportData[] = $assessment;
+            }
+        }
+        
+        $statusText = '';
+        if ($filter_status == 'pass') $statusText = ' - Passed Students Only';
+        if ($filter_status == 'fail') $statusText = ' - Failed Students Only';
+        if ($filter_status == 'pending') $statusText = ' - Pending Assessments';
+        
+        $siteText = '';
+        if (!empty($filter_site)) {
+            foreach ($sites as $s) {
+                if ($s['site_id'] == $filter_site) {
+                    $siteText = ' - ' . $s['name'];
+                    break;
+                }
+            }
+        }
+        
+        $reportTitle = 'Assessment Report' . $siteText . $statusText;
+        $tableHeaders = ['Student Number', 'Student Name', 'Cohort', 'Clinical Site', 'Matron Score', 'Final Score', 'Grade', 'Status'];
+        
+        // Set alert message for no data
+        if (empty($reportData)) {
+            if ($filter_status == 'pass') {
+                $noDataAlert = 'No passed students found';
+            } elseif ($filter_status == 'fail') {
+                $noDataAlert = 'No failed students found. All students have passed!';
+            } elseif ($filter_status == 'pending') {
+                $noDataAlert = 'No pending assessments found';
+            } elseif (!empty($filter_site)) {
+                $siteName = '';
+                foreach ($sites as $s) {
+                    if ($s['site_id'] == $filter_site) {
+                        $siteName = $s['name'];
+                        break;
+                    }
+                }
+                $noDataAlert = 'No assessment data found for ' . $siteName;
+            } else {
+                $noDataAlert = 'No assessment data found';
+            }
+        }
+    }
+    
+    // Handle export
+    if ($export_format && !empty($reportData)) {
+        exportToFormat($reportData, str_replace(' ', '_', strtolower($reportTitle)), $export_format, $tableHeaders, $report_type);
+        exit;
+    }
+}
+
+function exportToFormat($data, $filename, $format, $headers, $report_type) {
+    if ($format == 'excel') {
+        header('Content-Type: application/vnd.ms-excel');
+        header('Content-Disposition: attachment; filename="' . $filename . '_' . date('Y-m-d') . '.xls"');
+        
+        echo '<table border="1">';
+        if (!empty($headers)) {
+            echo '<tr>';
+            foreach ($headers as $header) {
+                echo '<th>' . $header . '</th>';
+            }
+            echo '</tr>';
+        }
+        
+        if ($report_type == 'assessment') {
+            foreach ($data as $row) {
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($row['student_number'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($row['student_name'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($row['cohort'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($row['site_name'] ?? 'Not Allocated') . '</td>';
+                echo '<td>' . ($row['matron_average'] ? $row['matron_average'] . '/5' : 'Pending') . '</td>';
+                echo '<td>' . ($row['final_average'] ? $row['final_average'] . '/5' : 'Pending') . '</td>';
+                echo '<td>' . ($row['final_grade'] ?? 'N/A') . '</td>';
+                echo '<td>' . ($row['status'] ?? 'PENDING') . '</td>';
+                echo '</tr>';
+            }
+        } elseif ($report_type == 'clinical_sites') {
+            foreach ($data as $row) {
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($row['site_name'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($row['location'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($row['contact_person'] ?? 'N/A') . '</td>';
+                echo '<td>' . htmlspecialchars($row['contact_phone'] ?? 'N/A') . '</td>';
+                echo '<td>' . ($row['total_students'] ?? 0) . '</td>';
+                if (!empty($row['students'])) {
+                    echo '<td>' . htmlspecialchars(implode(', ', $row['students'])) . '</td>';
+                } else {
+                    echo '<td>No students allocated</td>';
+                }
+                echo '</tr>';
+            }
+        }
+        echo '</table>';
+        exit;
+        
+    } elseif ($format == 'pdf') {
+        header('Content-Type: text/html');
+        echo '<html><head><title>' . $filename . '</title>';
+        echo '<style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { color: #4a2f1a; }
+            table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+            th { background: #4a2f1a; color: white; padding: 12px; text-align: left; }
+            td { border: 1px solid #ddd; padding: 10px; }
+            tr:nth-child(even) { background: #f9f9f9; }
+            .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; }
+            .pass { color: green; font-weight: bold; }
+            .fail { color: red; font-weight: bold; }
+            .pending { color: orange; font-weight: bold; }
+        </style>';
+        echo '</head><body>';
+        echo '<h1>Daeyang University - ' . str_replace('_', ' ', $filename) . '</h1>';
+        echo '<p>Generated on: ' . date('F d, Y H:i:s') . '</p>';
+        
+        if (!empty($headers) && !empty($data)) {
+            echo '<table>';
+            echo '<tr>';
+            foreach ($headers as $header) {
+                echo '<th>' . $header . '</th>';
+            }
+            echo '</tr>';
+            
+            if ($report_type == 'assessment') {
+                foreach ($data as $row) {
+                    echo '<tr>';
+                    echo '<td>' . htmlspecialchars($row['student_number'] ?? '') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['student_name'] ?? '') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['cohort'] ?? '') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['site_name'] ?? 'Not Allocated') . '</td>';
+                    echo '<td>' . ($row['matron_average'] ? $row['matron_average'] . '/5' : 'Pending') . '</td>';
+                    echo '<td>' . ($row['final_average'] ? $row['final_average'] . '/5' : 'Pending') . '</td>';
+                    echo '<td>' . ($row['final_grade'] ?? 'N/A') . '</td>';
+                    $statusClass = strtolower($row['status'] ?? 'pending');
+                    echo '<td class="' . $statusClass . '">' . ($row['status'] ?? 'PENDING') . '</td>';
+                    echo '</tr>';
+                }
+            } elseif ($report_type == 'clinical_sites') {
+                foreach ($data as $row) {
+                    echo '<tr>';
+                    echo '<td>' . htmlspecialchars($row['site_name'] ?? '') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['location'] ?? '') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['contact_person'] ?? 'N/A') . '</td>';
+                    echo '<td>' . htmlspecialchars($row['contact_phone'] ?? 'N/A') . '</td>';
+                    echo '<td>' . ($row['total_students'] ?? 0) . '</td>';
+                    if (!empty($row['students'])) {
+                        echo '<td>' . htmlspecialchars(implode(', ', $row['students'])) . '</td>';
+                    } else {
+                        echo '<td>No students allocated</td>';
+                    }
+                    echo '</tr>';
+                }
+            }
+            echo '</table>';
+        }
+        echo '<div class="footer">Daeyang University Nursing Department - Official Report</div>';
+        echo '</body></html>';
+        echo '<script>window.print();</script>';
+        exit;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -56,7 +246,7 @@ if ($date_from && $date_to) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reports - Coordinator Dashboard</title>
+    <title>Generate Reports - Coordinator Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -71,7 +261,6 @@ if ($date_from && $date_to) {
             min-height: 100vh;
         }
         
-        /* Header */
         .header {
             background: #4a2f1a;
             padding: 15px 30px;
@@ -121,7 +310,6 @@ if ($date_from && $date_to) {
             background: #dc3545;
         }
         
-        /* Navigation Tabs */
         .nav-tabs {
             background: #5a3a2a;
             display: flex;
@@ -153,227 +341,117 @@ if ($date_from && $date_to) {
             background: #4a2f1a;
         }
         
-        /* Container */
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 30px 20px;
         }
         
-        /* Action Bar */
-        .action-bar {
+        .generator-card {
             background: white;
             border-radius: 12px;
-            padding: 15px 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .generator-card h2 {
+            color: #4a2f1a;
             margin-bottom: 25px;
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border-left: 4px solid #c3a343;
+            padding-left: 15px;
+            font-size: 1.3rem;
         }
         
-        .action-buttons {
-            display: flex;
-            gap: 10px;
+        .form-group {
+            margin-bottom: 20px;
         }
         
-        .btn-view-summary {
-            background: #4a2f1a;
-            color: white;
-            padding: 10px 25px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: 0.3s;
-        }
-        
-        .btn-view-summary:hover {
-            background: #654321;
-        }
-        
-        .btn-archive {
-            background: #6c757d;
-            color: white;
-            padding: 10px 25px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: 0.3s;
-        }
-        
-        .btn-archive:hover {
-            background: #5a6268;
-        }
-        
-        .filter-info {
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
             color: #4a2f1a;
             font-size: 0.85rem;
-            font-weight: 500;
         }
         
-        /* Filter Bar */
-        .filter-bar {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 25px;
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: flex-end;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            transition: 0.3s;
+        }
+        
+        .form-group select:focus {
+            outline: none;
+            border-color: #c3a343;
         }
         
         .filter-group {
-            flex: 1;
-            min-width: 150px;
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #c3a343;
         }
         
-        .filter-group label {
+        .small-text {
+            color: #666;
             display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #4a2f1a;
-            font-size: 0.8rem;
+            margin-top: 5px;
+            font-size: 0.7rem;
         }
         
-        .filter-group select,
-        .filter-group input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.9rem;
-        }
-        
-        .btn-filter {
-            background: #4a2f1a;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: 0.3s;
-        }
-        
-        .btn-filter:hover {
-            background: #654321;
-        }
-        
-        .btn-reset {
-            background: #6c757d;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn-reset:hover {
-            background: #5a6268;
-        }
-        
-        /* Generate Report Section */
-        .generate-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-        
-        .generate-card h2 {
-            color: #4a2f1a;
-            margin-bottom: 20px;
-            border-left: 4px solid #c3a343;
-            padding-left: 15px;
-        }
-        
-        .date-range {
+        .export-buttons {
             display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-            align-items: flex-end;
-            margin-bottom: 20px;
-        }
-        
-        .date-group {
-            flex: 1;
-            min-width: 200px;
-        }
-        
-        .date-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #4a2f1a;
-            font-size: 0.8rem;
-        }
-        
-        .date-group input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.9rem;
+            gap: 15px;
+            margin-top: 25px;
         }
         
         .btn-generate {
             background: #4a2f1a;
             color: white;
-            padding: 10px 30px;
+            padding: 12px 30px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 500;
+            font-size: 1rem;
+            font-weight: 600;
             transition: 0.3s;
+            flex: 1;
         }
         
         .btn-generate:hover {
             background: #654321;
         }
         
-        /* Report Card */
-        .report-card {
+        .results-card {
             background: white;
             border-radius: 12px;
             padding: 25px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .report-card h2 {
-            color: #4a2f1a;
-            margin-bottom: 20px;
-            border-left: 4px solid #c3a343;
-            padding-left: 15px;
-        }
-        
-        /* Data Table Container - Hidden by default */
-        .data-table-container {
+            overflow-x: auto;
             display: none;
-            margin-top: 20px;
         }
         
-        .data-table-container.visible {
+        .results-card.visible {
             display: block;
         }
         
-        .table-responsive {
-            overflow-x: auto;
+        .results-card h3 {
+            color: #4a2f1a;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #c3a343;
         }
         
         .report-table {
             width: 100%;
             border-collapse: collapse;
+            font-size: 0.85rem;
         }
         
         .report-table th,
@@ -393,61 +471,105 @@ if ($date_from && $date_to) {
             background: #f5f5f5;
         }
         
-        .no-data {
-            text-align: center;
-            color: #999;
-            padding: 40px;
-        }
-        
-        /* Badge Styles */
         .badge {
             display: inline-block;
-            padding: 3px 10px;
-            border-radius: 15px;
+            padding: 4px 12px;
+            border-radius: 20px;
             font-size: 0.75rem;
+            font-weight: 500;
         }
         
-        .badge-high {
+        .badge-pass {
             background: #d4edda;
             color: #155724;
         }
         
-        .badge-medium {
+        .badge-fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge-pending {
             background: #fff3cd;
             color: #856404;
         }
         
-        .badge-low {
-            background: #f8d7da;
-            color: #721c24;
+        .record-count {
+            margin-top: 15px;
+            text-align: right;
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .alert-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            border-left: 5px solid #c3a343;
+            z-index: 1000;
+            text-align: center;
+            min-width: 300px;
+        }
+        
+        .alert-message .alert-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+        
+        .alert-message .alert-text {
+            color: #4a2f1a;
+            font-size: 1rem;
+            margin-bottom: 15px;
+        }
+        
+        .alert-message .alert-close {
+            background: #4a2f1a;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        
+        .alert-message .alert-close:hover {
+            background: #654321;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
         }
         
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
             .nav-tabs { justify-content: center; }
-            .filter-bar { flex-direction: column; }
-            .filter-group { width: 100%; }
-            .action-bar { flex-direction: column; text-align: center; }
-            .action-buttons { justify-content: center; }
-            .date-range { flex-direction: column; }
-            .date-group { width: 100%; }
+            .export-buttons { flex-direction: column; }
+            .generator-card { padding: 20px; }
             .report-table th,
-            .report-table td { padding: 8px; font-size: 0.8rem; }
+            .report-table td { padding: 8px; font-size: 0.7rem; }
+            .alert-message { width: 90%; min-width: auto; }
         }
         
         @media print {
-            .header, .nav-tabs, .filter-bar, .action-bar, .generate-card, .btn-logout, .role-badge {
+            .header, .nav-tabs, .generator-card, .btn-logout, .role-badge, .alert-message, .overlay {
                 display: none !important;
             }
-            .report-card {
-                background: white;
+            .results-card {
+                display: block !important;
                 box-shadow: none;
                 padding: 0;
-            }
-            .report-table th {
-                background: #f0f0f0;
-                color: black;
             }
         }
     </style>
@@ -462,276 +584,202 @@ if ($date_from && $date_to) {
         </div>
     </div>
     
-    <!-- Navigation Tabs -->
     <div class="nav-tabs">
-        <a href="?tab=summary&report=students_by_site" class="nav-tab <?php echo $active_tab == 'summary' ? 'active' : ''; ?>">Report Summary</a>
-        <a href="?tab=generate" class="nav-tab <?php echo $active_tab == 'generate' ? 'active' : ''; ?>">Generate Report</a>
+        <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Dashboard</a>
+        <a href="coordinator_reports.php" class="nav-tab active">Generate Report</a>
     </div>
     
     <div class="container">
         
-        <!-- REPORT SUMMARY TAB -->
-        <?php if ($active_tab == 'summary'): ?>
-        
-        <!-- Action Bar -->
-        <div class="action-bar">
-            <div class="action-buttons">
-                <button class="btn-view-summary" onclick="viewSummary()">View Summary</button>
-                <button class="btn-archive" onclick="archiveReport()">Archive</button>
-            </div>
-            <div class="filter-info">
-                Report: <?php echo $reportTitle; ?> | Total Records: <?php echo count($reportData); ?>
-            </div>
-        </div>
-        
-        <!-- Filter Bar -->
-        <div class="filter-bar">
-            <?php if ($report_type == 'students_by_site' || $report_type == 'pending_assessments'): ?>
-            <div class="filter-group">
-                <label>Filter by Clinical Site</label>
-                <select name="filter_site" id="filter_site">
-                    <option value="">All Sites</option>
-                    <?php foreach ($sites as $site): ?>
-                        <option value="<?php echo $site['site_id']; ?>" <?php echo $filter_site == $site['site_id'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($site['name']); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <?php endif; ?>
+        <div class="generator-card">
+            <h2>Generate Report</h2>
             
-            <?php if ($report_type == 'pending_assessments' || $report_type == 'assessment_summary'): ?>
-            <div class="filter-group">
-                <label>Filter by Cohort</label>
-                <select name="filter_cohort" id="filter_cohort">
-                    <option value="">All Cohorts</option>
-                    <?php foreach ($cohortList as $cohort): ?>
-                        <option value="<?php echo $cohort; ?>" <?php echo $filter_cohort == $cohort ? 'selected' : ''; ?>>
-                            <?php echo $cohort; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <?php endif; ?>
-            
-            <?php if ($report_type == 'assessment_summary'): ?>
-            <div class="filter-group">
-                <label>Filter by Student</label>
-                <select name="filter_student" id="filter_student">
-                    <option value="">All Students</option>
-                    <?php foreach ($students as $student): ?>
-                        <option value="<?php echo $student['student_id']; ?>" <?php echo $filter_student == $student['student_id'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($student['name']); ?> (<?php echo $student['student_number']; ?>)
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <?php endif; ?>
-            
-            <div class="filter-group">
-                <button class="btn-filter" onclick="applyFilters()">Apply Filters</button>
-                <a href="?tab=summary&report=<?php echo $report_type; ?>" class="btn-reset">Reset Filters</a>
-            </div>
-        </div>
-        
-        <!-- Report Content - Hidden until View Summary button clicked -->
-        <div class="report-card">
-            <h2><?php echo $reportTitle; ?></h2>
-            
-            <div id="reportDataContainer" class="data-table-container">
-                <?php if (count($reportData) > 0): ?>
-                    <div class="table-responsive">
-                        <table class="report-table">
-                            <thead>
-                                <tr>
-                                    <?php foreach ($tableHeaders as $header): ?>
-                                        <th><?php echo $header; ?></th>
-                                    <?php endforeach; ?>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($reportData as $row): ?>
-                                    <tr>
-                                        <?php if ($report_type == 'students_by_site'): ?>
-                                            <td><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['location'] ?? ''); ?></td>
-                                            <td><?php echo $row['total_students'] ?? 0; ?></td>
-                                            <td style="max-width: 300px; word-wrap: break-word;"><?php echo htmlspecialchars($row['students'] ?? 'No students allocated'); ?></td>
-                                        <?php elseif ($report_type == 'pending_assessments'): ?>
-                                            <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['role'] ?? ''); ?></td>
-                                            <td><?php echo isset($row['start_date']) ? date('M d, Y', strtotime($row['start_date'])) : '-'; ?></td>
-                                            <td><?php echo isset($row['end_date']) ? date('M d, Y', strtotime($row['end_date'])) : '-'; ?></td>
-                                        <?php elseif ($report_type == 'assessment_summary'): ?>
-                                            <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?></td>
-                                            <td><?php echo htmlspecialchars($row['cohort'] ?? ''); ?></td>
-                                            <td>
-                                                <?php if (isset($row['avg_punctuality']) && $row['avg_punctuality']): ?>
-                                                    <span class="badge <?php echo $row['avg_punctuality'] >= 4 ? 'badge-high' : ($row['avg_punctuality'] >= 3 ? 'badge-medium' : 'badge-low'); ?>">
-                                                        <?php echo $row['avg_punctuality']; ?>/5
-                                                    </span>
-                                                <?php else: ?>
-                                                    -
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <?php if (isset($row['avg_dressing']) && $row['avg_dressing']): ?>
-                                                    <span class="badge <?php echo $row['avg_dressing'] >= 4 ? 'badge-high' : ($row['avg_dressing'] >= 3 ? 'badge-medium' : 'badge-low'); ?>">
-                                                        <?php echo $row['avg_dressing']; ?>/5
-                                                    </span>
-                                                <?php else: ?>
-                                                    -
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <?php if (isset($row['avg_communication']) && $row['avg_communication']): ?>
-                                                    <span class="badge <?php echo $row['avg_communication'] >= 4 ? 'badge-high' : ($row['avg_communication'] >= 3 ? 'badge-medium' : 'badge-low'); ?>">
-                                                        <?php echo $row['avg_communication']; ?>/5
-                                                    </span>
-                                                <?php else: ?>
-                                                    -
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <?php if (isset($row['overall_average']) && $row['overall_average']): ?>
-                                                    <span class="badge <?php echo $row['overall_average'] >= 4 ? 'badge-high' : ($row['overall_average'] >= 3 ? 'badge-medium' : 'badge-low'); ?>">
-                                                        <?php echo $row['overall_average']; ?>/5
-                                                    </span>
-                                                <?php else: ?>
-                                                    -
-                                                <?php endif; ?>
-                                            </td>
-                                            <td><?php echo $row['assessment_count'] ?? 0; ?></td>
-                                        <?php elseif ($report_type == 'site_summary'): ?>
-                                            <td><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></td>
-                                            <td><?php echo $row['students_assessed'] ?? 0; ?></td>
-                                            <td><?php echo isset($row['avg_punctuality']) && $row['avg_punctuality'] ? $row['avg_punctuality'] . '/5' : '-'; ?></td>
-                                            <td><?php echo isset($row['avg_dressing']) && $row['avg_dressing'] ? $row['avg_dressing'] . '/5' : '-'; ?></td>
-                                            <td><?php echo isset($row['avg_communication']) && $row['avg_communication'] ? $row['avg_communication'] . '/5' : '-'; ?></td>
-                                            <td><?php echo $row['total_assessments'] ?? 0; ?></td>
-                                        <?php endif; ?>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+            <form method="POST" id="reportForm">
+                <!-- Report Type Selection -->
+                <div class="form-group">
+                    <label>Select Report Type</label>
+                    <select name="report_type" id="report_type" required>
+                        <option value="clinical_sites" <?php echo $report_type == 'clinical_sites' ? 'selected' : ''; ?>>Clinical Sites Report - Students by Site</option>
+                        <option value="assessment" <?php echo $report_type == 'assessment' ? 'selected' : ''; ?>>Assessment Report - Pass/Fail Status</option>
+                    </select>
+                </div>
+                
+                <!-- Clinical Sites Filters -->
+                <div id="clinical_sites_filters" class="filter-group" style="<?php echo $report_type == 'clinical_sites' ? 'display: block;' : 'display: none;'; ?>">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label>Filter by Clinical Site</label>
+                        <select name="filter_site" id="clinical_site_select">
+                            <option value="">-- All Clinical Sites --</option>
+                            <?php foreach ($sites as $site): ?>
+                                <option value="<?php echo $site['site_id']; ?>" <?php echo $filter_site == $site['site_id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="small-text">Select a specific site to see students allocated to that site only</small>
                     </div>
-                <?php else: ?>
-                    <p class="no-data">No data available for this report with the selected filters.</p>
-                <?php endif; ?>
-            </div>
-        </div>
-        
-        <?php endif; ?>
-        
-        <!-- GENERATE REPORT TAB -->
-        <?php if ($active_tab == 'generate'): ?>
-        
-        <div class="generate-card">
-            <h2>Generate Report by Date Range</h2>
-            <form method="GET" action="">
-                <input type="hidden" name="tab" value="generate">
-                <div class="date-range">
-                    <div class="date-group">
-                        <label>From Date</label>
-                        <input type="date" name="date_from" value="<?php echo $date_from; ?>" required>
+                </div>
+                
+                <!-- Assessment Filters -->
+                <div id="assessment_filters" class="filter-group" style="<?php echo $report_type == 'assessment' ? 'display: block;' : 'display: none;'; ?>">
+                    <div class="form-group">
+                        <label>Filter by Clinical Site</label>
+                        <select name="filter_site">
+                            <option value="">-- All Clinical Sites --</option>
+                            <?php foreach ($sites as $site): ?>
+                                <option value="<?php echo $site['site_id']; ?>" <?php echo $filter_site == $site['site_id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-                    <div class="date-group">
-                        <label>To Date</label>
-                        <input type="date" name="date_to" value="<?php echo $date_to; ?>" required>
+                    <div class="form-group">
+                        <label>Filter by Status</label>
+                        <select name="filter_status">
+                            <option value="">-- All Students --</option>
+                            <option value="pass" <?php echo $filter_status == 'pass' ? 'selected' : ''; ?>>Passed Students Only</option>
+                            <option value="fail" <?php echo $filter_status == 'fail' ? 'selected' : ''; ?>>Failed Students Only</option>
+                            <option value="pending" <?php echo $filter_status == 'pending' ? 'selected' : ''; ?>>Pending Assessments</option>
+                        </select>
                     </div>
-                    <div class="date-group">
-                        <button type="submit" class="btn-generate">Generate Report</button>
-                    </div>
+                </div>
+                
+                <!-- Export Format Selection -->
+                <div class="form-group">
+                    <label>Export Format</label>
+                    <select name="export_format" id="export_format" required>
+                        <option value="">-- Select Export Format --</option>
+                        <option value="excel">Microsoft Excel (.xls)</option>
+                        <option value="pdf">PDF Document (.pdf)</option>
+                        <option value="print">Print / Web View</option>
+                    </select>
+                </div>
+                
+                <div class="export-buttons">
+                    <button type="submit" name="generate" value="1" class="btn-generate">Generate Report</button>
                 </div>
             </form>
         </div>
         
-        <?php if ($date_from && $date_to && !empty($generatedReportData)): ?>
-        <div class="report-card">
-            <h2>Report from <?php echo date('M d, Y', strtotime($date_from)); ?> to <?php echo date('M d, Y', strtotime($date_to)); ?></h2>
-            
-            <div class="table-responsive">
-                <table class="report-table">
-                    <thead>
-                        <tr>
-                            <th>Student Name</th>
-                            <th>Student ID</th>
-                            <th>Clinical Site</th>
-                            <th>Assessment Date</th>
-                            <th>Punctuality</th>
-                            <th>Dressing</th>
-                            <th>Communication</th>
-                            <th>Lecturer</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($generatedReportData as $row): ?>
-                        <tr>
-                            <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?></td>
-                            <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?></td>
-                            <td><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></td>
-                            <td><?php echo isset($row['assessment_date']) ? date('M d, Y', strtotime($row['assessment_date'])) : '-'; ?></td>
-                            <td class="text-center"><?php echo $row['punctuality_score'] ?? '-'; ?>/5</td>
-                            <td class="text-center"><?php echo $row['dressing_score'] ?? '-'; ?>/5</td>
-                            <td class="text-center"><?php echo $row['communication_score'] ?? '-'; ?>/5</td>
-                            <td><?php echo htmlspecialchars($row['lecturer_name'] ?? ''); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            
-            <div class="filter-info" style="margin-top: 15px; text-align: right;">
-                Total Records: <?php echo count($generatedReportData); ?>
-            </div>
+        <!-- Report Results -->
+        <div id="resultsCard" class="results-card <?php echo $generated && !empty($reportData) ? 'visible' : ''; ?>">
+            <?php if (!empty($reportData)): ?>
+                <h3><?php echo $reportTitle; ?></h3>
+                <div class="table-responsive">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <?php foreach ($tableHeaders as $header): ?>
+                                    <th><?php echo $header; ?></th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ($report_type == 'clinical_sites'): ?>
+                                <?php foreach ($reportData as $row): ?>
+                                    <tr>
+                                        <td><strong><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></strong></td>
+                                        <td><?php echo htmlspecialchars($row['location'] ?? ''); ?>\) None
+                                        <td><?php echo htmlspecialchars($row['contact_person'] ?? 'N/A'); ?>\) None
+                                        <td><?php echo htmlspecialchars($row['contact_phone'] ?? 'N/A'); ?>\) None
+                                        <td class="text-center"><?php echo $row['total_students'] ?? 0; ?>\) None
+                                        <td style="max-width: 400px;">
+                                            <?php if (!empty($row['students'])): ?>
+                                                <ul style="margin: 0; padding-left: 20px;">
+                                                    <?php foreach ($row['students'] as $student): ?>
+                                                        <li><?php echo htmlspecialchars($student); ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php else: ?>
+                                                No students allocated to this site
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                
+                            <?php elseif ($report_type == 'assessment'): ?>
+                                <?php foreach ($reportData as $row): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?>\) None
+                                        <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?>\) None
+                                        <td><?php echo htmlspecialchars($row['cohort'] ?? ''); ?>\) None
+                                        <td><?php echo htmlspecialchars($row['site_name'] ?? 'Not Allocated'); ?>\) None
+                                        <td class="text-center"><?php echo ($row['matron_average']) ? $row['matron_average'] . '/5' : 'Pending'; ?>\) None
+                                        <td class="text-center"><strong><?php echo ($row['final_average']) ? $row['final_average'] . '/5' : 'Pending'; ?></strong>\) None
+                                        <td class="text-center"><strong><?php echo $row['final_grade'] ?? 'N/A'; ?></strong>\) None
+                                        <td class="text-center">
+                                            <span class="badge badge-<?php echo strtolower($row['status'] ?? 'pending'); ?>">
+                                                <?php echo $row['status'] ?? 'PENDING'; ?>
+                                            </span>
+                                         </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="record-count">
+                    Total Records: <?php echo count($reportData); ?>
+                </div>
+            <?php endif; ?>
         </div>
-        <?php elseif ($date_from && $date_to): ?>
-        <div class="report-card">
-            <p class="no-data">No data found for the selected date range.</p>
-        </div>
-        <?php endif; ?>
-        
-        <?php endif; ?>
         
     </div>
     
+    <!-- Alert Modal for No Data -->
+    <?php if ($noDataAlert): ?>
+    <div class="overlay" id="alertOverlay"></div>
+    <div class="alert-message" id="alertMessage">
+        <div class="alert-icon">📋</div>
+        <div class="alert-text"><?php echo $noDataAlert; ?></div>
+        <button class="alert-close" onclick="closeAlert()">OK</button>
+    </div>
     <script>
-        function applyFilters() {
-            const filterSite = document.getElementById('filter_site')?.value || '';
-            const filterCohort = document.getElementById('filter_cohort')?.value || '';
-            const filterStudent = document.getElementById('filter_student')?.value || '';
-            
-            let url = '?tab=summary&report=<?php echo $report_type; ?>';
-            if (filterSite) url += '&filter_site=' + filterSite;
-            if (filterCohort) url += '&filter_cohort=' + filterCohort;
-            if (filterStudent) url += '&filter_student=' + filterStudent;
-            
-            window.location.href = url;
+        function closeAlert() {
+            document.getElementById('alertMessage').style.display = 'none';
+            document.getElementById('alertOverlay').style.display = 'none';
         }
         
-        function viewSummary() {
-            var container = document.getElementById('reportDataContainer');
-            if (container.classList.contains('visible')) {
-                container.classList.remove('visible');
+        document.getElementById('alertOverlay').addEventListener('click', closeAlert);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeAlert();
+            }
+        });
+    </script>
+    <?php endif; ?>
+    
+    <script>
+        const reportTypeSelect = document.getElementById('report_type');
+        const clinicalFilters = document.getElementById('clinical_sites_filters');
+        const assessmentFilters = document.getElementById('assessment_filters');
+        const exportFormatSelect = document.getElementById('export_format');
+        
+        function updateFilters() {
+            if (reportTypeSelect.value === 'clinical_sites') {
+                clinicalFilters.style.display = 'block';
+                assessmentFilters.style.display = 'none';
             } else {
-                container.classList.add('visible');
+                clinicalFilters.style.display = 'none';
+                assessmentFilters.style.display = 'block';
             }
         }
         
-        function archiveReport() {
-            if (confirm('Archive this report? This will save a snapshot of the current data.')) {
-                alert('Report archived successfully!');
-            }
-        }
+        reportTypeSelect.addEventListener('change', updateFilters);
+        updateFilters();
         
-        // Initialize - report data is hidden by default
-        document.addEventListener('DOMContentLoaded', function() {
-            var container = document.getElementById('reportDataContainer');
-            if (container) {
-                container.classList.remove('visible');
+        document.getElementById('reportForm').addEventListener('submit', function(e) {
+            const exportFormat = exportFormatSelect.value;
+            if (!exportFormat) {
+                e.preventDefault();
+                alert('Please select an export format (Excel, PDF, or Print)');
+                return false;
+            }
+            
+            if (exportFormat === 'print') {
+                setTimeout(function() {
+                    window.print();
+                }, 500);
             }
         });
     </script>
