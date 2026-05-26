@@ -40,7 +40,7 @@ class Coordinator {
     
     // ============ STUDENT OPERATIONS ============
     
-    public function addStudent($student_number, $name, $email, $cohort, $mode_of_entry, $coordinator_id) {
+    public function addStudent($student_number, $name, $email, $cohort, $mode_of_entry, $coordinator_id, $year_of_study = 1) {
         // Check if student already exists
         $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number";
         $checkStmt = $this->conn->prepare($checkQuery);
@@ -52,14 +52,15 @@ class Coordinator {
         }
         
         $password_hash = password_hash('pass', PASSWORD_DEFAULT);
-        $query = "INSERT INTO student (student_number, name, email, password_hash, cohort, mode_of_entry, coordinator_id) 
-                  VALUES (:student_number, :name, :email, :password_hash, :cohort, :mode_of_entry, :coordinator_id)";
+        $query = "INSERT INTO student (student_number, name, email, password_hash, cohort, year_of_study, mode_of_entry, coordinator_id) 
+                  VALUES (:student_number, :name, :email, :password_hash, :cohort, :year_of_study, :mode_of_entry, :coordinator_id)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_number', $student_number);
         $stmt->bindParam(':name', $name);
         $stmt->bindParam(':email', $email);
         $stmt->bindParam(':password_hash', $password_hash);
         $stmt->bindParam(':cohort', $cohort);
+        $stmt->bindParam(':year_of_study', $year_of_study);
         $stmt->bindParam(':mode_of_entry', $mode_of_entry);
         $stmt->bindParam(':coordinator_id', $coordinator_id);
         return $stmt->execute();
@@ -77,6 +78,55 @@ class Coordinator {
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_id', $student_id);
         return $stmt->execute();
+    }
+
+    public function addStudentWithDefaultAllocation($student_number, $name, $email, $cohort, $mode_of_entry, $coordinator_id, $year_of_study = 1) {
+        // Add the student first
+        $password_hash = password_hash('pass', PASSWORD_DEFAULT);
+        $query = "INSERT INTO student (student_number, name, email, password_hash, cohort, year_of_study, mode_of_entry, coordinator_id) 
+                  VALUES (:student_number, :name, :email, :password_hash, :cohort, :year_of_study, :mode_of_entry, :coordinator_id)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_number', $student_number);
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':email', $email);
+        $stmt->bindParam(':password_hash', $password_hash);
+        $stmt->bindParam(':cohort', $cohort);
+        $stmt->bindParam(':year_of_study', $year_of_study);
+        $stmt->bindParam(':mode_of_entry', $mode_of_entry);
+        $stmt->bindParam(':coordinator_id', $coordinator_id);
+        
+        if ($stmt->execute()) {
+            $student_id = $this->conn->lastInsertId();
+            
+            // If first year student, automatically assign General Nursing role
+            if ($year_of_study == 1 || $year_of_study === '1') {
+                // Get the first available clinical site
+                $siteQuery = "SELECT site_id FROM clinical_site LIMIT 1";
+                $siteStmt = $this->conn->prepare($siteQuery);
+                $siteStmt->execute();
+                $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($site) {
+                    // Set allocation dates: start today, end in 3 months
+                    $start_date = date('Y-m-d');
+                    $end_date = date('Y-m-d', strtotime('+3 months'));
+                    
+                    // Create default allocation with General Nursing role
+                    $allocQuery = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) 
+                                   VALUES (:student_id, :site_id, :start_date, :end_date, 'General Nursing', 'active')";
+                    $allocStmt = $this->conn->prepare($allocQuery);
+                    $allocStmt->bindParam(':student_id', $student_id);
+                    $allocStmt->bindParam(':site_id', $site['site_id']);
+                    $allocStmt->bindParam(':start_date', $start_date);
+                    $allocStmt->bindParam(':end_date', $end_date);
+                    $allocStmt->execute();
+                }
+            }
+            
+            return true;
+        }
+        
+        return false;
     }
     
     // ============ COHORT OPERATIONS ============

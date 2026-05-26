@@ -49,12 +49,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['student_file'])) {
                         continue;
                     }
                     
-                    // Columns: Student Number, Name, Email, Cohort, Mode of Entry
+                    // Columns: Student Number, Name, Email, Cohort, Year of Study, Mode of Entry
                     $student_number = trim($data[0] ?? '');
                     $name = trim($data[1] ?? '');
                     $email = trim($data[2] ?? '');
                     $cohort = trim($data[3] ?? date('Y'));
-                    $mode_of_entry = trim($data[4] ?? 'Generic');
+                    $year_of_study = trim($data[4] ?? '1');
+                    $mode_of_entry = trim($data[5] ?? 'Generic');
                     
                     if (empty($student_number) || empty($name) || empty($email)) {
                         $upload_errors[] = "Row $row_number: Missing required fields (Student Number, Name, Email)";
@@ -62,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['student_file'])) {
                         continue;
                     }
                     
-                    $result = $coordinator->addStudent($student_number, $name, $email, $cohort, $mode_of_entry, $_SESSION['user_id']);
+                    $result = $coordinator->addStudentWithDefaultAllocation($student_number, $name, $email, $cohort, $mode_of_entry, $_SESSION['user_id'], $year_of_study);
                     
                     if ($result) {
                         $upload_success++;
@@ -101,9 +102,9 @@ if (isset($_GET['download_template'])) {
     header('Content-Disposition: attachment; filename="student_upload_template.csv"');
     
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['Student Number', 'Name', 'Email', 'Cohort', 'Mode of Entry']);
-    fputcsv($output, ['BScNM/2024/001', 'John Doe', 'john@example.com', '2024', 'Generic']);
-    fputcsv($output, ['BScNM/2024/002', 'Jane Smith', 'jane@example.com', '2024', 'Upgrading']);
+    fputcsv($output, ['Student Number', 'Name', 'Email', 'Cohort', 'Year of Study', 'Mode of Entry']);
+    fputcsv($output, ['BScNM/2024/001', 'John Doe', 'john@example.com', '2024', '1', 'Generic']);
+    fputcsv($output, ['BScNM/2024/002', 'Jane Smith', 'jane@example.com', '2024', '2', 'Upgrading']);
     fclose($output);
     exit;
 }
@@ -335,7 +336,6 @@ if (isset($_GET['download_template'])) {
     <div class="nav-tabs">
         <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Clinical Sites</a>
         <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Students</a>
-        <a href="coordinator_Dashboard.php?tab=allocations" class="nav-tab">Allocations</a>
         <a href="upload_students.php" class="nav-tab active">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab">Auto Allocate</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>

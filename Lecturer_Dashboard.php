@@ -30,38 +30,76 @@ $unread_count = $notification->getUnreadCount($lecturer_id, 'lecturer');
 $notifications = $notification->getAllNotifications($lecturer_id, 'lecturer', 10);
 
 $lecturer = new Lecturer($lecturer_id);
-$sites = $lecturer->getClinicalSites();
+
+// Get assigned sites for this lecturer
+$assigned_sites = $lecturer->getAssignedSites();
 
 $message = '';
 $error = '';
 $active_tab = $_GET['tab'] ?? 'assessment';
 $selected_site_id = isset($_GET['site_id']) ? $_GET['site_id'] : '';
 
+// If no site selected but there are assigned sites, auto-select the first one
+if (empty($selected_site_id) && !empty($assigned_sites)) {
+    $selected_site_id = $assigned_sites[0]['site_id'];
+}
+
 // Mark notification as read if requested
 if (isset($_GET['mark_read']) && is_numeric($_GET['mark_read'])) {
     $notification->markAsRead($_GET['mark_read']);
-    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab);
+    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab . "&site_id=" . $selected_site_id);
     exit();
 }
 
 // Mark all as read if requested
 if (isset($_GET['mark_all_read'])) {
     $notification->markAllAsRead($lecturer_id, 'lecturer');
-    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab);
+    header("Location: Lecturer_Dashboard.php?tab=" . $active_tab . "&site_id=" . $selected_site_id);
     exit();
 }
 
 // Get students based on selected site
 $studentsAtSite = [];
+$pendingCount = 0;
+$completedCount = 0;
+$dailyMarkedStudents = [];
+
 if ($selected_site_id) {
     $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
+    $dailyMarkedStudents = $lecturer->getStudentsWithDailyMarks($selected_site_id);
+    
+    // Calculate pending and completed counts
+    foreach ($studentsAtSite as $student) {
+        $matronDone = ($student['matron_assessed'] > 0);
+        $lecturerDone = ($student['already_assessed'] > 0);
+        
+        if ($matronDone && !$lecturerDone) {
+            $pendingCount++;
+        } elseif ($lecturerDone) {
+            $completedCount++;
+        }
+    }
+    
+    // Merge daily marked students info
+    $dailyMarkedMap = [];
+    foreach ($dailyMarkedStudents as $dm) {
+        $dailyMarkedMap[$dm['student_id']] = $dm;
+    }
+    
+    // Add daily mark info to students
+    foreach ($studentsAtSite as &$student) {
+        if (isset($dailyMarkedMap[$student['student_id']])) {
+            $student['daily_mark_count'] = $dailyMarkedMap[$student['student_id']]['daily_mark_count'];
+            $student['avg_performance'] = $dailyMarkedMap[$student['student_id']]['avg_performance'];
+            $student['last_marked_date'] = $dailyMarkedMap[$student['student_id']]['last_marked_date'];
+        }
+    }
 }
 
 // Handle assessment submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) {
     if ($lecturer->saveAssessment($_POST['student_id'], $_POST['site_id'], $_POST['punctuality'], $_POST['dressing'], $_POST['communication'], $_POST['comments'])) {
         $message = "Final Assessment saved successfully";
-        // Refresh students list after saving
         if ($selected_site_id) {
             $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
         }
@@ -372,6 +410,46 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             padding-left: 15px;
         }
         
+        .assigned-site-info {
+            background: #f0f7ff;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c3a343;
+        }
+        
+        .assigned-site-info p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+        
+        .stats-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-bottom: 2px solid #c3a343;
+        }
+        
+        .stat-number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #4a2f1a;
+        }
+        
+        .stat-label {
+            font-size: 0.7rem;
+            color: #666;
+        }
+        
         .form-group {
             margin-bottom: 20px;
         }
@@ -381,15 +459,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             margin-bottom: 8px;
             font-weight: 500;
             color: #4a2f1a;
-        }
-        
-        .form-group select {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 0.9rem;
         }
         
         .students-grid {
@@ -679,6 +748,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                 width: 300px;
                 right: -50px;
             }
+            .stats-row { flex-direction: column; }
         }
     </style>
 </head>
@@ -700,7 +770,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                     <div class="dropdown-header">
                         <h4>Notifications</h4>
                         <?php if ($unread_count > 0): ?>
-                            <a href="?mark_all_read=1&tab=<?php echo $active_tab; ?>">Mark all as read</a>
+                            <a href="?mark_all_read=1&tab=<?php echo $active_tab; ?>&site_id=<?php echo $selected_site_id; ?>">Mark all as read</a>
                         <?php endif; ?>
                     </div>
                     <div class="dropdown-body">
@@ -711,7 +781,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                     <div class="notification-message"><?php echo htmlspecialchars(substr($notif['message'], 0, 100)); ?></div>
                                     <div class="notification-time"><?php echo date('M d, H:i', strtotime($notif['created_at'])); ?></div>
                                     <?php if (!$notif['is_read']): ?>
-                                        <a href="?mark_read=<?php echo $notif['notification_id']; ?>&tab=<?php echo $active_tab; ?>" class="mark-read-btn">Mark as read</a>
+                                        <a href="?mark_read=<?php echo $notif['notification_id']; ?>&tab=<?php echo $active_tab; ?>&site_id=<?php echo $selected_site_id; ?>" class="mark-read-btn">Mark as read</a>
                                     <?php endif; ?>
                                 </div>
                             <?php endforeach; ?>
@@ -742,18 +812,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         <div class="welcome-card">
             <h2>Welcome, <?php echo htmlspecialchars($lecturer_name); ?></h2>
-            <p>Select a clinical site to conduct FINAL assessments. Matron must complete initial assessment first.</p>
+            <p>Conduct final assessments for students at your assigned clinical sites.</p>
         </div>
         
         <div id="assessmentSection" class="content-section <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">
             <div class="card">
                 <h2>Final Assessment (Lecturer)</h2>
                 
+                <?php if (count($assigned_sites) == 0): ?>
+                    <div class="error-msg">
+                        You have not been assigned to any clinical sites. Please contact the coordinator to assign you to sites.
+                    </div>
+                <?php else: ?>
+                
+                <!-- Site Selector (only shows assigned sites) -->
                 <div class="form-group">
                     <label for="siteSelect">Select Clinical Site</label>
-                    <select id="siteSelect" class="form-control" onchange="window.location.href='?tab=assessment&site_id='+this.value">
-                        <option value="">-- Select a Clinical Site --</option>
-                        <?php foreach ($sites as $site): ?>
+                    <select id="siteSelect" onchange="window.location.href='?tab=assessment&site_id='+this.value">
+                        <?php foreach ($assigned_sites as $site): ?>
                             <option value="<?php echo $site['site_id']; ?>" <?php echo $selected_site_id == $site['site_id'] ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
                             </option>
@@ -761,7 +837,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                     </select>
                 </div>
                 
+                <!-- Assigned Site Info -->
+                <?php if ($selected_site_id): 
+                    $currentSite = array_filter($assigned_sites, function($s) use ($selected_site_id) {
+                        return $s['site_id'] == $selected_site_id;
+                    });
+                    $currentSite = reset($currentSite);
+                ?>
+                <div class="assigned-site-info">
+                    <p><strong>Current Site:</strong> <?php echo htmlspecialchars($currentSite['name']); ?> (<?php echo htmlspecialchars($currentSite['location']); ?>)</p>
+                    <p><strong>Contact:</strong> <?php echo htmlspecialchars($currentSite['contact_person']); ?> | <?php echo htmlspecialchars($currentSite['contact_phone']); ?></p>
+                </div>
+                <?php endif; ?>
+                
                 <?php if ($selected_site_id && count($studentsAtSite) > 0): ?>
+                    
+                    <!-- Statistics -->
+                    <div class="stats-row">
+                        <div class="stat-card">
+                            <div class="stat-number"><?php echo count($studentsAtSite); ?></div>
+                            <div class="stat-label">Total Students</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number"><?php echo $pendingCount; ?></div>
+                            <div class="stat-label">Pending Assessment</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number"><?php echo $completedCount; ?></div>
+                            <div class="stat-label">Completed</div>
+                        </div>
+                    </div>
+                    
                     <div class="students-grid">
                         <?php foreach ($studentsAtSite as $student): ?>
                             <div class="student-card">
@@ -779,6 +885,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                     <button class="btn-secondary" disabled>Not Available</button>
                                 <?php elseif ($matronDone && !$lecturerDone): ?>
                                     <span class="badge-info">Final Assessment Pending</span>
+                                    <?php if (isset($student['daily_mark_count']) && $student['daily_mark_count'] > 0): ?>
+                                        <span class="badge-success" style="margin-top: 5px;">Daily Marks: <?php echo $student['daily_mark_count']; ?> day(s)</span>
+                                        <p style="font-size: 0.7rem; color: #28a745; margin-top: 5px;">
+                                            Avg Performance: <?php echo number_format($student['avg_performance'], 1); ?>/5
+                                        </p>
+                                    <?php endif; ?>
                                     <button class="btn-primary assess-btn" 
                                         data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
                                         data-siteid="<?php echo $selected_site_id; ?>">
@@ -799,6 +911,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                     <p class="no-data">No students allocated to this clinical site.</p>
                 <?php else: ?>
                     <p class="no-data">Please select a clinical site to view students.</p>
+                <?php endif; ?>
+                
                 <?php endif; ?>
             </div>
         </div>
@@ -826,13 +940,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         <tbody>
                             <?php foreach ($history as $h): ?>
                             <tr>
-                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
-                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)</td>
-                                <td><?php echo htmlspecialchars($h['site_name']); ?></td>
-                                <td><?php echo $h['punctuality_score']; ?>/5</td>
-                                <td><?php echo $h['dressing_score']; ?>/5</td>
-                                <td><?php echo $h['communication_score']; ?>/5</td>
-                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...</td>
+                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?>\(
+                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)\(
+                                <td><?php echo htmlspecialchars($h['site_name']); ?>\(
+                                <td><?php echo $h['punctuality_score']; ?>/5\(
+                                <td><?php echo $h['dressing_score']; ?>/5\(
+                                <td><?php echo $h['communication_score']; ?>/5\(
+                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...\(
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

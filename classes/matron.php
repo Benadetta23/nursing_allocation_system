@@ -15,6 +15,7 @@ class Matron {
         $this->matron_id = $matron_id;
     }
     
+    // Get the clinical site assigned to this matron
     public function getAssignedSite() {
         $query = "SELECT cs.* FROM clinical_site cs 
                   JOIN matron m ON cs.site_id = m.site_id 
@@ -25,6 +26,7 @@ class Matron {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
+    // Get all clinical sites (for coordinator use only)
     public function getAllClinicalSites() {
         $query = "SELECT * FROM clinical_site ORDER BY name";
         $stmt = $this->conn->prepare($query);
@@ -32,6 +34,7 @@ class Matron {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    // Get students at a specific site
     public function getStudentsAtSite($site_id) {
         $query = "SELECT DISTINCT s.student_id, s.name, s.student_number, s.cohort, s.program,
                          a.alloc_id, a.start_date, a.end_date, a.role, a.site_id,
@@ -56,6 +59,7 @@ class Matron {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    // Save initial assessment
     public function saveAssessment($student_id, $site_id, $punctuality, $dressing, $communication, $comments) {
         // Check if initial assessment already exists from this matron
         $checkQuery = "SELECT assess_id FROM assessment 
@@ -92,9 +96,9 @@ class Matron {
         } else {
             // Insert new INITIAL assessment
             $query = "INSERT INTO assessment (student_id, assessor_id, assessor_type, site_id, assessment_date, 
-                      punctuality_score, dressing_score, communication_score, comments, assessment_type) 
+                      punctuality_score, dressing_score, communication_score, comments) 
                       VALUES (:student_id, :matron_id, 'matron', :site_id, CURDATE(), 
-                      :punctuality, :dressing, :communication, :comments, 'initial')";
+                      :punctuality, :dressing, :communication, :comments)";
             $stmt = $this->conn->prepare($query);
             $stmt->bindParam(':student_id', $student_id);
             $stmt->bindParam(':matron_id', $this->matron_id);
@@ -108,6 +112,7 @@ class Matron {
         return $stmt->execute();
     }
     
+    // Get assessment history for this matron
     public function getAssessmentHistory() {
         $query = "SELECT a.*, s.name as student_name, s.student_number, c.name as site_name
                   FROM assessment a
@@ -118,6 +123,90 @@ class Matron {
                   LIMIT 50";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':matron_id', $this->matron_id);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    // ============ DAILY MARKING OPERATIONS ============
+    
+    // Save or update daily mark for a student
+    public function saveOrUpdateDailyMark($student_id, $site_id, $attendance, $punctuality, $performance, $behavior, $comments) {
+        $marking_date = date('Y-m-d');
+        
+        // Check if daily mark for this date already exists
+        $checkQuery = "SELECT daily_mark_id FROM daily_marking 
+                       WHERE student_id = :student_id 
+                       AND matron_id = :matron_id 
+                       AND site_id = :site_id 
+                       AND marking_date = :marking_date";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->bindParam(':matron_id', $this->matron_id);
+        $checkStmt->bindParam(':site_id', $site_id);
+        $checkStmt->bindParam(':marking_date', $marking_date);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            // Update existing daily mark
+            $query = "UPDATE daily_marking 
+                      SET attendance = :attendance, 
+                          punctuality = :punctuality, 
+                          performance = :performance, 
+                          behavior = :behavior, 
+                          comments = :comments
+                      WHERE student_id = :student_id 
+                      AND matron_id = :matron_id 
+                      AND site_id = :site_id 
+                      AND marking_date = :marking_date";
+        } else {
+            // Insert new daily mark
+            $query = "INSERT INTO daily_marking (student_id, matron_id, site_id, marking_date, attendance, punctuality, performance, behavior, comments) 
+                      VALUES (:student_id, :matron_id, :site_id, :marking_date, :attendance, :punctuality, :performance, :behavior, :comments)";
+        }
+        
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->bindParam(':matron_id', $this->matron_id);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->bindParam(':marking_date', $marking_date);
+        $stmt->bindParam(':attendance', $attendance);
+        $stmt->bindParam(':punctuality', $punctuality);
+        $stmt->bindParam(':performance', $performance);
+        $stmt->bindParam(':behavior', $behavior);
+        $stmt->bindParam(':comments', $comments);
+        
+        return $stmt->execute();
+    }
+    
+    // Get daily marking history for a site
+    public function getDailyMarkingHistory($site_id, $num_days = 7) {
+        $query = "SELECT dm.*, s.name as student_name, s.student_number, 
+                         AVG(dm.performance) as avg_performance,
+                         COUNT(*) as total_marks
+                  FROM daily_marking dm
+                  JOIN student s ON dm.student_id = s.student_id
+                  WHERE dm.site_id = :site_id 
+                  AND dm.marking_date >= DATE_SUB(CURDATE(), INTERVAL :num_days DAY)
+                  GROUP BY dm.student_id
+                  ORDER BY dm.marking_date DESC, s.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->bindParam(':num_days', $num_days, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    // Get today's daily marks for a site
+    public function getTodaysDailyMarks($site_id) {
+        $marking_date = date('Y-m-d');
+        $query = "SELECT dm.*, s.name as student_name, s.student_number
+                  FROM daily_marking dm
+                  JOIN student s ON dm.student_id = s.student_id
+                  WHERE dm.site_id = :site_id AND dm.marking_date = :marking_date
+                  ORDER BY s.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->bindParam(':marking_date', $marking_date);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

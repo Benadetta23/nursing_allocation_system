@@ -17,16 +17,20 @@ $matron_name = $_SESSION['name'];
 $matron_email = $_SESSION['email'];
 
 $matron = new Matron($matron_id);
-$sites = $matron->getAllClinicalSites();
 
 $message = '';
 $error = '';
 $active_tab = $_GET['tab'] ?? 'assessment';
-$selected_site_id = isset($_GET['site_id']) ? $_GET['site_id'] : '';
 
-// Get students based on selected site
-$studentsAtSite = [];
-if ($selected_site_id) {
+// Get the matron's assigned site
+$assignedSite = $matron->getAssignedSite();
+
+if (!$assignedSite) {
+    $error = "You have not been assigned to any clinical site. Please contact the coordinator.";
+    $selected_site_id = null;
+    $studentsAtSite = [];
+} else {
+    $selected_site_id = $assignedSite['site_id'];
     $studentsAtSite = $matron->getStudentsAtSite($selected_site_id);
 }
 
@@ -34,12 +38,31 @@ if ($selected_site_id) {
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) {
     if ($matron->saveAssessment($_POST['student_id'], $_POST['site_id'], $_POST['punctuality'], $_POST['dressing'], $_POST['communication'], $_POST['comments'])) {
         $message = "Initial Assessment saved successfully";
-        // Refresh students list after saving
         if ($selected_site_id) {
             $studentsAtSite = $matron->getStudentsAtSite($selected_site_id);
         }
     } else {
         $error = "Failed to save assessment";
+    }
+}
+
+// Handle daily marking submission
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_daily_mark'])) {
+    if ($matron->saveOrUpdateDailyMark(
+        $_POST['student_id'], 
+        $_POST['site_id'], 
+        $_POST['attendance'], 
+        $_POST['punctuality'], 
+        $_POST['performance'], 
+        $_POST['behavior'], 
+        $_POST['comments']
+    )) {
+        $message = "Daily mark recorded successfully for " . date('Y-m-d');
+        if ($selected_site_id) {
+            $studentsAtSite = $matron->getStudentsAtSite($selected_site_id);
+        }
+    } else {
+        $error = "Failed to save daily mark";
     }
 }
 
@@ -58,6 +81,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         $message = "Profile updated successfully";
     } else {
         $error = "Failed to update profile";
+    }
+}
+
+// Get daily marking history for the assigned site
+$dailyMarkingHistory = [];
+if ($selected_site_id && $active_tab == 'daily_marking') {
+    $dailyMarkingHistory = $matron->getDailyMarkingHistory($selected_site_id, 30);
+}
+
+// Get today's marks for the assigned site
+$todaysMarks = [];
+$markedStudentIds = [];
+if ($selected_site_id) {
+    $todaysMarks = $matron->getTodaysDailyMarks($selected_site_id);
+    foreach ($todaysMarks as $mark) {
+        $markedStudentIds[] = $mark['student_id'];
     }
 }
 ?>
@@ -216,23 +255,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             font-size: 1.3rem;
         }
         
-        .form-group {
+        .assigned-site-info {
+            background: #f0f7ff;
+            padding: 12px 15px;
+            border-radius: 8px;
             margin-bottom: 20px;
+            border-left: 4px solid #c3a343;
         }
         
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #4a2f1a;
-        }
-        
-        .form-group select {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-family: inherit;
+        .assigned-site-info p {
+            margin: 5px 0;
             font-size: 0.9rem;
         }
         
@@ -286,11 +318,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             display: inline-block;
         }
         
-        .badge-info {
-            background: #d1ecf1;
-            color: #0c5460;
-            padding: 4px 12px;
-            border-radius: 20px;
+        .badge-marked {
+            background: #d4edda;
+            color: #155724;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.7rem;
+            display: inline-block;
+        }
+        
+        .badge-unmarked {
+            background: #fff3cd;
+            color: #856404;
+            padding: 3px 10px;
+            border-radius: 15px;
             font-size: 0.7rem;
             display: inline-block;
         }
@@ -365,18 +406,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             padding-bottom: 10px;
             border-bottom: 2px solid #c3a343;
             display: inline-block;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #4a2f1a;
-            font-size: 0.85rem;
         }
         
         .form-group input {
@@ -500,7 +529,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             font-size: 0.85rem;
         }
         
-        .score-item input {
+        .score-item input, .score-item select {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
@@ -511,7 +540,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             transition: all 0.3s;
         }
         
-        .score-item input:focus {
+        .score-item input:focus, .score-item select:focus {
             outline: none;
             border-color: #c3a343;
             box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.1);
@@ -546,11 +575,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-color: #c3a343;
             background: white;
             box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.1);
-        }
-        
-        .comments-section textarea::placeholder {
-            color: #bbb;
-            font-style: italic;
         }
         
         .modal-buttons {
@@ -638,21 +662,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-left: 4px solid #dc3545;
         }
         
-        /* Comment truncation with tooltip */
         .comment-cell {
             max-width: 250px;
             cursor: pointer;
-        }
-        
-        .comment-text {
-            display: block;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        
-        .comment-full {
-            display: none;
         }
         
         @media (max-width: 768px) {
@@ -692,7 +704,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     </div>
     
     <div class="nav-tabs">
-        <a href="?tab=assessment" class="nav-tab <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">Student Assessment (Initial)</a>
+        <a href="?tab=assessment" class="nav-tab <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">Initial Assessment</a>
+        <a href="?tab=daily_marking" class="nav-tab <?php echo $active_tab == 'daily_marking' ? 'active' : ''; ?>">Daily Marking</a>
         <a href="?tab=history" class="nav-tab <?php echo $active_tab == 'history' ? 'active' : ''; ?>">Assessment History</a>
         <a href="?tab=profile" class="nav-tab <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">My Profile</a>
     </div>
@@ -707,26 +720,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         
         <div class="welcome-card">
             <h2>Welcome, <?php echo htmlspecialchars($matron_name); ?></h2>
-            <p>Select a clinical site to conduct INITIAL assessments. Lecturer will do FINAL assessment later.</p>
+            <p>Manage initial assessments and daily marking for your assigned clinical site.</p>
         </div>
         
+        <?php if (!$assignedSite): ?>
+            <div class="error-msg">
+                <strong>No clinical site assigned!</strong> Please contact the coordinator to assign you to a clinical site.
+            </div>
+        <?php else: ?>
+        
+        <!-- Assigned Site Info -->
+        <div class="assigned-site-info">
+            <p><strong>Your Assigned Clinical Site:</strong> <?php echo htmlspecialchars($assignedSite['name']); ?> (<?php echo htmlspecialchars($assignedSite['location']); ?>)</p>
+            <p><strong>Contact:</strong> <?php echo htmlspecialchars($assignedSite['contact_person']); ?> | <?php echo htmlspecialchars($assignedSite['contact_phone']); ?></p>
+        </div>
+        
+        <!-- Initial Assessment Section -->
         <div id="assessmentSection" class="content-section <?php echo $active_tab == 'assessment' ? 'active' : ''; ?>">
             <div class="card">
                 <h2>Initial Assessment (Matron)</h2>
                 
-                <div class="form-group">
-                    <label for="siteSelect">Select Clinical Site</label>
-                    <select id="siteSelect" onchange="window.location.href='?tab=assessment&site_id='+this.value">
-                        <option value="">-- Select a Clinical Site --</option>
-                        <?php foreach ($sites as $site): ?>
-                            <option value="<?php echo $site['site_id']; ?>" <?php echo $selected_site_id == $site['site_id'] ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <?php if ($selected_site_id && count($studentsAtSite) > 0): ?>
+                <?php if (count($studentsAtSite) > 0): ?>
                     <div class="students-grid">
                         <?php foreach ($studentsAtSite as $student): ?>
                             <div class="student-card">
@@ -755,14 +769,86 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                             </div>
                         <?php endforeach; ?>
                     </div>
-                <?php elseif ($selected_site_id): ?>
-                    <p class="no-data">No students allocated to this clinical site.</p>
                 <?php else: ?>
-                    <p class="no-data">Please select a clinical site to view students.</p>
+                    <p class="no-data">No students allocated to your clinical site.</p>
                 <?php endif; ?>
             </div>
         </div>
         
+        <!-- Daily Marking Section -->
+        <div id="dailyMarkingSection" class="content-section <?php echo $active_tab == 'daily_marking' ? 'active' : ''; ?>">
+            <div class="card">
+                <h2>Daily Marking - <?php echo date('l, F j, Y'); ?></h2>
+                <p style="color: #666; margin-bottom: 20px;">Record daily performance and attendance for students at your clinical site.</p>
+                
+                <?php if (count($studentsAtSite) > 0): ?>
+                    <div class="students-grid">
+                        <?php foreach ($studentsAtSite as $student): 
+                            $isMarkedToday = in_array($student['student_id'], $markedStudentIds);
+                        ?>
+                            <div class="student-card">
+                                <h4><?php echo htmlspecialchars($student['name']); ?></h4>
+                                <p>ID: <?php echo htmlspecialchars($student['student_number']); ?></p>
+                                <p>Role: <?php echo htmlspecialchars($student['role']); ?></p>
+                                <p>Cohort: <?php echo htmlspecialchars($student['cohort']); ?></p>
+                                <?php if ($isMarkedToday): ?>
+                                    <span class="badge-marked">✓ Marked Today</span>
+                                <?php else: ?>
+                                    <span class="badge-unmarked">⏳ Not Marked Yet</span>
+                                <?php endif; ?>
+                                <button type="button" class="btn-primary" style="margin-top: 10px;" 
+                                    onclick="openDailyMarkModal(<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>, <?php echo $selected_site_id; ?>)">
+                                    Record Daily Mark
+                                </button>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="no-data">No students allocated to your clinical site.</p>
+                <?php endif; ?>
+            </div>
+            
+            <!-- Daily Marking History -->
+            <?php if (!empty($dailyMarkingHistory)): ?>
+            <div class="card">
+                <h2>Recent Daily Marking History</h2>
+                <div style="overflow-x: auto;">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Student</th>
+                                <th>Attendance</th>
+                                <th>Punctuality</th>
+                                <th>Performance</th>
+                                <th>Behavior</th>
+                                <th>Comments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($dailyMarkingHistory as $mark): ?>
+                            <tr>
+                                <td><?php echo date('M d, Y', strtotime($mark['marking_date'])); ?>\(
+                                <td><?php echo htmlspecialchars($mark['student_name']); ?> (<?php echo $mark['student_number']; ?>)\(
+                                <td>
+                                    <span class="badge <?php echo $mark['attendance'] == 'Present' ? 'badge-success' : 'badge-warning'; ?>">
+                                        <?php echo $mark['attendance']; ?>
+                                    </span>
+                                \(
+                                <td><?php echo $mark['punctuality']; ?>/5\(
+                                <td><?php echo $mark['performance']; ?>/5\(
+                                <td><?php echo $mark['behavior']; ?>/5\(
+                                <td><?php echo htmlspecialchars(substr($mark['comments'] ?? '', 0, 50)); ?>\(
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- Assessment History Section -->
         <div id="historySection" class="content-section <?php echo $active_tab == 'history' ? 'active' : ''; ?>">
             <div class="card">
                 <h2>My Assessment History</h2>
@@ -786,15 +872,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         <tbody>
                             <?php foreach ($history as $h): ?>
                             <tr>
-                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
+                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?>\(
                                 <td>
                                     <?php echo htmlspecialchars($h['student_name']); ?><br>
                                     <small class="text-muted">(<?php echo htmlspecialchars($h['student_number']); ?>)</small>
-                                </td>
-                                <td><?php echo htmlspecialchars($h['site_name']); ?></td>
-                                <td><?php echo intval($h['punctuality_score']); ?>/5</td>
-                                <td><?php echo intval($h['dressing_score']); ?>/5</td>
-                                <td><?php echo intval($h['communication_score']); ?>/5</td>
+                                \(
+                                <td><?php echo htmlspecialchars($h['site_name']); ?>\(
+                                <td><?php echo intval($h['punctuality_score']); ?>/5\(
+                                <td><?php echo intval($h['dressing_score']); ?>/5\(
+                                <td><?php echo intval($h['communication_score']); ?>/5\(
                                 <td class="comment-cell" title="<?php echo htmlspecialchars($h['comments'], ENT_QUOTES, 'UTF-8'); ?>">
                                     <?php 
                                     $comments = trim($h['comments']);
@@ -804,7 +890,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                         echo htmlspecialchars($comments, ENT_QUOTES, 'UTF-8');
                                     }
                                     ?>
-                                </td>
+                                \(
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -816,6 +902,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             </div>
         </div>
         
+        <?php endif; ?>
+        
+        <!-- Profile Section (always visible) -->
         <div id="profileSection" class="content-section <?php echo $active_tab == 'profile' ? 'active' : ''; ?>">
             <div class="card">
                 <h2>My Profile</h2>
@@ -900,7 +989,67 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
         </div>
     </div>
     
+    <!-- Daily Marking Modal -->
+    <div id="dailyMarkModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Daily Mark - <?php echo date('Y-m-d'); ?></h3>
+                <span class="close" onclick="closeDailyMarkModal()">&times;</span>
+            </div>
+            <form method="POST" id="dailyMarkForm">
+                <div class="modal-body">
+                    <input type="hidden" id="dailyStudentId" name="student_id">
+                    <input type="hidden" id="dailySiteId" name="site_id">
+                    
+                    <div class="student-info-card">
+                        <p><strong>Student:</strong> <span id="dailyStudentName"></span></p>
+                        <p><strong>Student ID:</strong> <span id="dailyStudentNumber"></span></p>
+                        <p><strong>Role:</strong> <span id="dailyStudentRole"></span></p>
+                    </div>
+                    
+                    <div class="score-row">
+                        <div class="score-item">
+                            <label>Attendance</label>
+                            <select id="attendance" name="attendance" required>
+                                <option value="">-- Select --</option>
+                                <option value="Present">Present</option>
+                                <option value="Absent">Absent</option>
+                                <option value="Late">Late</option>
+                            </select>
+                        </div>
+                        <div class="score-item">
+                            <label>Punctuality (1-5)</label>
+                            <input type="number" id="punctuality_daily" name="punctuality" min="1" max="5" required>
+                        </div>
+                    </div>
+                    
+                    <div class="score-row">
+                        <div class="score-item">
+                            <label>Performance (1-5)</label>
+                            <input type="number" id="performance" name="performance" min="1" max="5" required>
+                        </div>
+                        <div class="score-item">
+                            <label>Behavior (1-5)</label>
+                            <input type="number" id="behavior" name="behavior" min="1" max="5" required>
+                        </div>
+                    </div>
+                    
+                    <div class="comments-section">
+                        <label for="daily_comments">Comments</label>
+                        <textarea id="daily_comments" name="comments" rows="3" placeholder="Observations for today..."></textarea>
+                    </div>
+                    
+                    <div class="modal-buttons">
+                        <button type="submit" name="submit_daily_mark" class="btn-save">Save Daily Mark</button>
+                        <button type="button" class="btn-cancel" onclick="closeDailyMarkModal()">Cancel</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    
     <script>
+        // Assessment Modal Functions
         document.querySelectorAll('.assess-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const student = JSON.parse(this.dataset.student);
@@ -929,10 +1078,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             document.getElementById('assessmentModal').style.display = 'none';
         }
         
+        // Daily Marking Modal Functions
+        function openDailyMarkModal(student, siteId) {
+            document.getElementById('dailyStudentId').value = student.student_id;
+            document.getElementById('dailySiteId').value = siteId;
+            document.getElementById('dailyStudentName').textContent = student.name;
+            document.getElementById('dailyStudentNumber').textContent = student.student_number;
+            document.getElementById('dailyStudentRole').textContent = student.role || 'General Nursing';
+            
+            document.getElementById('attendance').value = '';
+            document.getElementById('punctuality_daily').value = '';
+            document.getElementById('performance').value = '';
+            document.getElementById('behavior').value = '';
+            document.getElementById('daily_comments').value = '';
+            
+            document.getElementById('dailyMarkModal').style.display = 'flex';
+        }
+        
+        function closeDailyMarkModal() {
+            document.getElementById('dailyMarkModal').style.display = 'none';
+        }
+        
         window.onclick = function(event) {
-            const modal = document.getElementById('assessmentModal');
-            if (event.target == modal) {
+            const assessModal = document.getElementById('assessmentModal');
+            const dailyModal = document.getElementById('dailyMarkModal');
+            if (event.target == assessModal) {
                 closeModal();
+            }
+            if (event.target == dailyModal) {
+                closeDailyMarkModal();
             }
         }
     </script>

@@ -433,7 +433,6 @@ $available_slots = $total_capacity - $total_allocated;
     <div class="nav-tabs">
         <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Clinical Sites</a>
         <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Students</a>
-        <a href="coordinator_Dashboard.php?tab=allocations" class="nav-tab">Allocations</a>
         <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab active">Auto Allocate</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
