@@ -940,13 +940,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         <tbody>
                             <?php foreach ($history as $h): ?>
                             <tr>
-                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?>\(
-                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)\(
-                                <td><?php echo htmlspecialchars($h['site_name']); ?>\(
-                                <td><?php echo $h['punctuality_score']; ?>/5\(
-                                <td><?php echo $h['dressing_score']; ?>/5\(
-                                <td><?php echo $h['communication_score']; ?>/5\(
-                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...\(
+                                <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
+                                <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)</td>
+                                <td><?php echo htmlspecialchars($h['site_name']); ?></td>
+                                <td><?php echo $h['punctuality_score']; ?>/5</td>
+                                <td><?php echo $h['dressing_score']; ?>/5</td>
+                                <td><?php echo $h['communication_score']; ?>/5\n</td>
+                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...\n</td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

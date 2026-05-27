@@ -41,6 +41,19 @@ if (isset($_POST['delete_allocation'])) {
         $error = "❌ Failed to delete allocation.";
     }
 }
+$duplicatesRemoved = $coordinator->removeDuplicateActiveAllocations();
+if ($duplicatesRemoved > 0 && !$error) {
+    $message = trim($message . ' Removed ' . $duplicatesRemoved . ' duplicate active allocation(s).');
+}
+$currentAllocations = $coordinator->getAllocations();
+$allocatedStudentIds = array_flip(array_map('strval', array_column($currentAllocations, 'student_id')));
+$availableStudents = [];
+
+foreach ($coordinator->getStudents() as $student) {
+    if (!isset($allocatedStudentIds[(string)$student['student_id']])) {
+        $availableStudents[] = $student;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -129,7 +142,10 @@ if (isset($_POST['delete_allocation'])) {
                         <label>Student</label>
                         <select name="student_id" required>
                             <option value="">Select Student</option>
-                            <?php foreach ($coordinator->getStudents() as $student): ?>
+                            <?php if (empty($availableStudents)): ?>
+                                <option value="" disabled>All students already have active allocations</option>
+                            <?php endif; ?>
+                            <?php foreach ($availableStudents as $student): ?>
                                 <option value="<?php echo $student['student_id']; ?>"><?php echo $student['student_number']; ?> - <?php echo $student['name']; ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -156,7 +172,7 @@ if (isset($_POST['delete_allocation'])) {
                         <input type="date" name="end_date" required>
                     </div>
                 </div>
-                <button type="submit" name="allocate" class="btn-primary">📌 Create Allocation</button>
+                <button type="submit" name="allocate" class="btn-primary" <?php echo empty($availableStudents) ? 'disabled' : ''; ?>>📌 Create Allocation</button>
             </form>
         </div>
         
@@ -168,7 +184,7 @@ if (isset($_POST['delete_allocation'])) {
                         <tr><th>Student</th><th>Site</th><th>Role</th><th>Start Date</th><th>End Date</th><th>Status</th><th>Action</th></tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($coordinator->getAllocations() as $alloc): ?>
+                        <?php foreach ($currentAllocations as $alloc): ?>
                         <tr>
                             <td><?php echo htmlspecialchars($alloc['student_name']); ?> (<?php echo $alloc['student_number']; ?>)</td>
                             <td><?php echo htmlspecialchars($alloc['site_name']); ?></td>
@@ -184,6 +200,11 @@ if (isset($_POST['delete_allocation'])) {
                             </td>
                         </tr>
                         <?php endforeach; ?>
+                        <?php if (empty($currentAllocations)): ?>
+                        <tr>
+                            <td colspan="7" style="text-align: center; color: #666;">No active allocations found.</td>
+                        </tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>

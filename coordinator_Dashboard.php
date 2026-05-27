@@ -8,6 +8,8 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'coordinator') {
 
 require_once 'classes/Coordinator.php';
 require_once 'classes/Database.php';
+require_once 'classes/Notification.php';
+
 $coordinator = new Coordinator();
 $database = new Database();
 $conn = $database->getConnection();
@@ -92,14 +94,61 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // Handle matron assignment
+    // Handle matron assignment with notification
     if (isset($_POST['assign_matron'])) {
+        $matron_id = $_POST['matron_id'];
+        $site_id = $_POST['site_id'];
+        
+        // Get matron details
+        $matronQuery = "SELECT name, email FROM matron WHERE matron_id = :matron_id";
+        $matronStmt = $conn->prepare($matronQuery);
+        $matronStmt->bindParam(':matron_id', $matron_id);
+        $matronStmt->execute();
+        $matron = $matronStmt->fetch(PDO::FETCH_ASSOC);
+        
+        // Get site details
+        $siteQuery = "SELECT name, location FROM clinical_site WHERE site_id = :site_id";
+        $siteStmt = $conn->prepare($siteQuery);
+        $siteStmt->bindParam(':site_id', $site_id);
+        $siteStmt->execute();
+        $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+        
+        // Update matron assignment
         $updateQuery = "UPDATE matron SET site_id = :site_id WHERE matron_id = :matron_id";
         $updateStmt = $conn->prepare($updateQuery);
-        $updateStmt->bindParam(':site_id', $_POST['site_id']);
-        $updateStmt->bindParam(':matron_id', $_POST['matron_id']);
+        $updateStmt->bindParam(':site_id', $site_id);
+        $updateStmt->bindParam(':matron_id', $matron_id);
+        
         if ($updateStmt->execute()) {
-            $message = "Matron assigned to clinical site successfully!";
+            // Send notification
+            $notification = new Notification($conn);
+            
+            $subject = "Clinical Site Assignment - Daeyang University";
+            $emailMessage = "
+                <h3>Dear {$matron['name']},</h3>
+                <p>You have been assigned to a clinical site:</p>
+                <table style='border-collapse: collapse; width: 100%; margin: 15px 0;'>
+                    <tr><td style='padding: 8px; background: #f0f0f0;'><strong>Clinical Site:</strong></td>
+                        <td style='padding: 8px;'>{$site['name']}</td>
+                    </tr>
+                    <tr><td style='padding: 8px; background: #f0f0f0;'><strong>Location:</strong></td>
+                        <td style='padding: 8px;'>{$site['location']}</td>
+                    </tr>
+                </table>
+                <p>Please log in to your dashboard to view and assess students at this site.</p>
+                <p>Best regards,<br><strong>Nursing Department</strong><br>Daeyang University</p>
+            ";
+            
+            $emailSent = $notification->sendEmail($matron['email'], $subject, $emailMessage);
+            $notification->saveNotification(
+                $matron_id,
+                'matron',
+                'Clinical Site Assignment',
+                "You have been assigned to {$site['name']} as your clinical site.",
+                $site_id
+            );
+            
+            $message = "Matron assigned to clinical site successfully! Notification " . ($emailSent ? "sent." : "pending (in-app sent).");
         } else {
             $error = "Failed to assign matron.";
         }
@@ -107,33 +156,97 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Handle remove matron from site
     if (isset($_POST['remove_matron_site'])) {
+        $matron_id = $_POST['matron_id'];
+        
+        $matronQuery = "SELECT m.name, m.email, cs.name as site_name FROM matron m 
+                        LEFT JOIN clinical_site cs ON m.site_id = cs.site_id 
+                        WHERE m.matron_id = :matron_id";
+        $matronStmt = $conn->prepare($matronQuery);
+        $matronStmt->bindParam(':matron_id', $matron_id);
+        $matronStmt->execute();
+        $matron = $matronStmt->fetch(PDO::FETCH_ASSOC);
+        
         $updateQuery = "UPDATE matron SET site_id = NULL WHERE matron_id = :matron_id";
         $updateStmt = $conn->prepare($updateQuery);
-        $updateStmt->bindParam(':matron_id', $_POST['matron_id']);
+        $updateStmt->bindParam(':matron_id', $matron_id);
+        
         if ($updateStmt->execute()) {
+            if ($matron && $matron['site_name']) {
+                $notification = new Notification($conn);
+                $notification->saveNotification(
+                    $matron_id,
+                    'matron',
+                    'Clinical Site Assignment Removed',
+                    "You have been removed from {$matron['site_name']}. Please contact the coordinator if you have questions.",
+                    null
+                );
+            }
             $message = "Matron removed from site successfully!";
         } else {
             $error = "Failed to remove matron.";
         }
     }
     
-    // Handle lecturer assignment
+    // Handle lecturer assignment with notification
     if (isset($_POST['assign_lecturer'])) {
+        $lecturer_id = $_POST['lecturer_id'];
+        $site_id = $_POST['site_id'];
+        
         $checkQuery = "SELECT id FROM lecturer_site WHERE lecturer_id = :lecturer_id AND site_id = :site_id";
         $checkStmt = $conn->prepare($checkQuery);
-        $checkStmt->bindParam(':lecturer_id', $_POST['lecturer_id']);
-        $checkStmt->bindParam(':site_id', $_POST['site_id']);
+        $checkStmt->bindParam(':lecturer_id', $lecturer_id);
+        $checkStmt->bindParam(':site_id', $site_id);
         $checkStmt->execute();
         
         if ($checkStmt->rowCount() > 0) {
             $error = "This lecturer is already assigned to this clinical site.";
         } else {
+            $lecturerQuery = "SELECT name, email FROM lecturer WHERE lecturer_id = :lecturer_id";
+            $lecturerStmt = $conn->prepare($lecturerQuery);
+            $lecturerStmt->bindParam(':lecturer_id', $lecturer_id);
+            $lecturerStmt->execute();
+            $lecturer = $lecturerStmt->fetch(PDO::FETCH_ASSOC);
+            
+            $siteQuery = "SELECT name, location FROM clinical_site WHERE site_id = :site_id";
+            $siteStmt = $conn->prepare($siteQuery);
+            $siteStmt->bindParam(':site_id', $site_id);
+            $siteStmt->execute();
+            $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+            
             $insertQuery = "INSERT INTO lecturer_site (lecturer_id, site_id, assigned_date) VALUES (:lecturer_id, :site_id, CURDATE())";
             $insertStmt = $conn->prepare($insertQuery);
-            $insertStmt->bindParam(':lecturer_id', $_POST['lecturer_id']);
-            $insertStmt->bindParam(':site_id', $_POST['site_id']);
+            $insertStmt->bindParam(':lecturer_id', $lecturer_id);
+            $insertStmt->bindParam(':site_id', $site_id);
+            
             if ($insertStmt->execute()) {
-                $message = "Lecturer assigned to clinical site successfully!";
+                $notification = new Notification($conn);
+                
+                $subject = "Clinical Site Assignment - Daeyang University";
+                $emailMessage = "
+                    <h3>Dear {$lecturer['name']},</h3>
+                    <p>You have been assigned to a clinical site for final assessments:</p>
+                    <table style='border-collapse: collapse; width: 100%; margin: 15px 0;'>
+                        <tr><td style='padding: 8px; background: #f0f0f0;'><strong>Clinical Site:</strong></td>
+                            <td style='padding: 8px;'>{$site['name']}</td>
+                        </tr>
+                        <tr><td style='padding: 8px; background: #f0f0f0;'><strong>Location:</strong></td>
+                            <td style='padding: 8px;'>{$site['location']}</td>
+                        </tr>
+                    </table>
+                    <p>Please log in to your dashboard to conduct final assessments for students at this site.</p>
+                    <p>Best regards,<br><strong>Nursing Department</strong><br>Daeyang University</p>
+                ";
+                
+                $emailSent = $notification->sendEmail($lecturer['email'], $subject, $emailMessage);
+                $notification->saveNotification(
+                    $lecturer_id,
+                    'lecturer',
+                    'Clinical Site Assignment',
+                    "You have been assigned to {$site['name']} for final assessments.",
+                    $site_id
+                );
+                
+                $message = "Lecturer assigned to clinical site successfully! Notification " . ($emailSent ? "sent." : "pending (in-app sent).");
             } else {
                 $error = "Failed to assign lecturer.";
             }
@@ -142,10 +255,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Handle remove lecturer from site
     if (isset($_POST['remove_lecturer_site'])) {
+        $assignment_id = $_POST['assignment_id'];
+        
+        $assignmentQuery = "SELECT ls.lecturer_id, l.name, l.email, cs.name as site_name 
+                           FROM lecturer_site ls
+                           JOIN lecturer l ON ls.lecturer_id = l.lecturer_id
+                           JOIN clinical_site cs ON ls.site_id = cs.site_id
+                           WHERE ls.id = :assignment_id";
+        $assignmentStmt = $conn->prepare($assignmentQuery);
+        $assignmentStmt->bindParam(':assignment_id', $assignment_id);
+        $assignmentStmt->execute();
+        $assignment = $assignmentStmt->fetch(PDO::FETCH_ASSOC);
+        
         $deleteQuery = "DELETE FROM lecturer_site WHERE id = :assignment_id";
         $deleteStmt = $conn->prepare($deleteQuery);
-        $deleteStmt->bindParam(':assignment_id', $_POST['assignment_id']);
+        $deleteStmt->bindParam(':assignment_id', $assignment_id);
+        
         if ($deleteStmt->execute()) {
+            if ($assignment) {
+                $notification = new Notification($conn);
+                $notification->saveNotification(
+                    $assignment['lecturer_id'],
+                    'lecturer',
+                    'Clinical Site Assignment Removed',
+                    "You have been removed from {$assignment['site_name']}. Please contact the coordinator if you have questions.",
+                    null
+                );
+            }
             $message = "Lecturer removed from site successfully!";
         } else {
             $error = "Failed to remove lecturer.";
@@ -592,7 +728,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         </thead>
                         <tbody>
                             <?php foreach ($coordinator->getSites() as $site): ?>
-                            </tr>
+                            <tr>
                                 <td><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($site['location'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($site['contact_person'])); ?></td>
@@ -667,7 +803,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             
                             <?php if (empty($students)): ?>
                             <tr>
-                                <td colspan="7" class="no-data">No students found. Use Bulk Upload to add students.\(
+                                <td colspan="7" class="no-data">No students found. Use Bulk Upload to add students.</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>

@@ -66,6 +66,12 @@ class Notification {
     
     // Format email message with HTML template
     private function formatEmailMessage($message) {
+        $trimmed = trim($message);
+        // If the message already contains a complete HTML document, use it as-is.
+        if (stripos($trimmed, '<!DOCTYPE html>') !== false || stripos($trimmed, '<html') !== false) {
+            return $trimmed;
+        }
+
         return '
         <!DOCTYPE html>
         <html>

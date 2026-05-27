@@ -10,7 +10,19 @@ require_once 'classes/Coordinator.php';
 $coordinator = new Coordinator();
 
 $report_type = $_POST['report_type'] ?? $_GET['report_type'] ?? 'clinical_sites';
-$filter_site = $_POST['filter_site'] ?? $_GET['filter_site'] ?? '';
+$clinical_filter_site = $_POST['clinical_filter_site'] ?? $_GET['clinical_filter_site'] ?? '';
+$assessment_filter_site = $_POST['assessment_filter_site'] ?? $_GET['assessment_filter_site'] ?? '';
+$legacy_filter_site = $_POST['filter_site'] ?? $_GET['filter_site'] ?? '';
+$filter_site = '';
+
+if ($report_type == 'assessment') {
+    $filter_site = $assessment_filter_site !== '' ? $assessment_filter_site : $legacy_filter_site;
+    $assessment_filter_site = $filter_site;
+} else {
+    $filter_site = $clinical_filter_site !== '' ? $clinical_filter_site : $legacy_filter_site;
+    $clinical_filter_site = $filter_site;
+}
+
 $filter_status = $_POST['filter_status'] ?? $_GET['filter_status'] ?? '';
 $export_format = $_POST['export_format'] ?? $_GET['export'] ?? '';
 $generated = false;
@@ -608,10 +620,10 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
                 <div id="clinical_sites_filters" class="filter-group" style="<?php echo $report_type == 'clinical_sites' ? 'display: block;' : 'display: none;'; ?>">
                     <div class="form-group" style="margin-bottom: 0;">
                         <label>Filter by Clinical Site</label>
-                        <select name="filter_site" id="clinical_site_select">
+                        <select name="clinical_filter_site" id="clinical_site_select">
                             <option value="">-- All Clinical Sites --</option>
                             <?php foreach ($sites as $site): ?>
-                                <option value="<?php echo $site['site_id']; ?>" <?php echo $filter_site == $site['site_id'] ? 'selected' : ''; ?>>
+                                <option value="<?php echo $site['site_id']; ?>" <?php echo $clinical_filter_site == $site['site_id'] ? 'selected' : ''; ?>>
                                     <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
                                 </option>
                             <?php endforeach; ?>
@@ -624,10 +636,10 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
                 <div id="assessment_filters" class="filter-group" style="<?php echo $report_type == 'assessment' ? 'display: block;' : 'display: none;'; ?>">
                     <div class="form-group">
                         <label>Filter by Clinical Site</label>
-                        <select name="filter_site">
+                        <select name="assessment_filter_site" id="assessment_site_select">
                             <option value="">-- All Clinical Sites --</option>
                             <?php foreach ($sites as $site): ?>
-                                <option value="<?php echo $site['site_id']; ?>" <?php echo $filter_site == $site['site_id'] ? 'selected' : ''; ?>>
+                                <option value="<?php echo $site['site_id']; ?>" <?php echo $assessment_filter_site == $site['site_id'] ? 'selected' : ''; ?>>
                                     <?php echo htmlspecialchars($site['name']); ?> (<?php echo htmlspecialchars($site['location']); ?>)
                                 </option>
                             <?php endforeach; ?>
@@ -679,10 +691,10 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
                                 <?php foreach ($reportData as $row): ?>
                                     <tr>
                                         <td><strong><?php echo htmlspecialchars($row['site_name'] ?? ''); ?></strong></td>
-                                        <td><?php echo htmlspecialchars($row['location'] ?? ''); ?>\) None
-                                        <td><?php echo htmlspecialchars($row['contact_person'] ?? 'N/A'); ?>\) None
-                                        <td><?php echo htmlspecialchars($row['contact_phone'] ?? 'N/A'); ?>\) None
-                                        <td class="text-center"><?php echo $row['total_students'] ?? 0; ?>\) None
+                                        <td><?php echo htmlspecialchars($row['location'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($row['contact_person'] ?? 'N/A'); ?></td>
+                                        <td><?php echo htmlspecialchars($row['contact_phone'] ?? 'N/A'); ?></td>
+                                        <td class="text-center"><?php echo $row['total_students'] ?? 0; ?></td>
                                         <td style="max-width: 400px;">
                                             <?php if (!empty($row['students'])): ?>
                                                 <ul style="margin: 0; padding-left: 20px;">
@@ -700,13 +712,13 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
                             <?php elseif ($report_type == 'assessment'): ?>
                                 <?php foreach ($reportData as $row): ?>
                                     <tr>
-                                        <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?>\) None
-                                        <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?>\) None
-                                        <td><?php echo htmlspecialchars($row['cohort'] ?? ''); ?>\) None
-                                        <td><?php echo htmlspecialchars($row['site_name'] ?? 'Not Allocated'); ?>\) None
-                                        <td class="text-center"><?php echo ($row['matron_average']) ? $row['matron_average'] . '/5' : 'Pending'; ?>\) None
-                                        <td class="text-center"><strong><?php echo ($row['final_average']) ? $row['final_average'] . '/5' : 'Pending'; ?></strong>\) None
-                                        <td class="text-center"><strong><?php echo $row['final_grade'] ?? 'N/A'; ?></strong>\) None
+                                        <td><?php echo htmlspecialchars($row['student_number'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($row['student_name'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($row['cohort'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($row['site_name'] ?? 'Not Allocated'); ?></td>
+                                        <td class="text-center"><?php echo ($row['matron_average']) ? $row['matron_average'] . '/5' : 'Pending'; ?></td>
+                                        <td class="text-center"><strong><?php echo ($row['final_average']) ? $row['final_average'] . '/5' : 'Pending'; ?></strong></td>
+                                        <td class="text-center"><strong><?php echo $row['final_grade'] ?? 'N/A'; ?></strong></td>
                                         <td class="text-center">
                                             <span class="badge badge-<?php echo strtolower($row['status'] ?? 'pending'); ?>">
                                                 <?php echo $row['status'] ?? 'PENDING'; ?>
@@ -754,15 +766,18 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
         const clinicalFilters = document.getElementById('clinical_sites_filters');
         const assessmentFilters = document.getElementById('assessment_filters');
         const exportFormatSelect = document.getElementById('export_format');
+
+        function setFilterState(container, enabled) {
+            container.style.display = enabled ? 'block' : 'none';
+            container.querySelectorAll('select').forEach(function(select) {
+                select.disabled = !enabled;
+            });
+        }
         
         function updateFilters() {
-            if (reportTypeSelect.value === 'clinical_sites') {
-                clinicalFilters.style.display = 'block';
-                assessmentFilters.style.display = 'none';
-            } else {
-                clinicalFilters.style.display = 'none';
-                assessmentFilters.style.display = 'block';
-            }
+            const showClinicalFilters = reportTypeSelect.value === 'clinical_sites';
+            setFilterState(clinicalFilters, showClinicalFilters);
+            setFilterState(assessmentFilters, !showClinicalFilters);
         }
         
         reportTypeSelect.addEventListener('change', updateFilters);

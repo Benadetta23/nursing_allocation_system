@@ -13,6 +13,17 @@ class Coordinator {
     // ============ SITE OPERATIONS ============
     
     public function addSite($name, $location, $contact_person, $contact_phone, $max_students) {
+        // Check if site already exists with same name and location
+        $checkQuery = "SELECT site_id FROM clinical_site WHERE name = :name AND location = :location";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':name', $name);
+        $checkStmt->bindParam(':location', $location);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false; // Site already exists
+        }
+        
         $query = "INSERT INTO clinical_site (name, location, contact_person, contact_phone, max_students) 
                   VALUES (:name, :location, :contact_person, :contact_phone, :max_students)";
         $stmt = $this->conn->prepare($query);
@@ -32,6 +43,16 @@ class Coordinator {
     }
     
     public function deleteSite($site_id) {
+        // Check if site has allocations before deleting
+        $checkQuery = "SELECT alloc_id FROM allocation WHERE site_id = :site_id";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':site_id', $site_id);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false; // Cannot delete site with allocations
+        }
+        
         $query = "DELETE FROM clinical_site WHERE site_id = :site_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':site_id', $site_id);
@@ -42,9 +63,10 @@ class Coordinator {
     
     public function addStudent($student_number, $name, $email, $cohort, $mode_of_entry, $coordinator_id, $year_of_study = 1) {
         // Check if student already exists
-        $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number";
+        $checkQuery = "SELECT student_id FROM student WHERE student_number = :student_number OR email = :email";
         $checkStmt = $this->conn->prepare($checkQuery);
         $checkStmt->bindParam(':student_number', $student_number);
+        $checkStmt->bindParam(':email', $email);
         $checkStmt->execute();
         
         if ($checkStmt->rowCount() > 0) {
@@ -67,13 +89,23 @@ class Coordinator {
     }
     
     public function getStudents() {
-        $query = "SELECT student_id, student_number, name, email, cohort, mode_of_entry FROM student ORDER BY name";
+        $query = "SELECT student_id, student_number, name, email, cohort, year_of_study, mode_of_entry FROM student ORDER BY name";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
     public function deleteStudent($student_id) {
+        // Check if student has allocations before deleting
+        $checkQuery = "SELECT alloc_id FROM allocation WHERE student_id = :student_id AND status = 'active'";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false; // Cannot delete student with active allocation
+        }
+        
         $query = "DELETE FROM student WHERE student_id = :student_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_id', $student_id);
@@ -141,13 +173,23 @@ class Coordinator {
     // ============ ALLOCATION OPERATIONS ============
     
     public function createAllocation($student_id, $site_id, $start_date, $end_date, $role) {
+        // Check if student already has active allocation
+        $checkQuery = "SELECT alloc_id FROM allocation WHERE student_id = :student_id AND status = 'active'";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false; // Student already allocated
+        }
+        
         $result = $this->allocateStudentWithNotification(
             $student_id,
             $site_id,
             $start_date,
             $end_date,
             $role,
-            'both'  // Default to both email and in-app
+            'both'
         );
         return $result['success'];
     }
@@ -157,6 +199,7 @@ class Coordinator {
     public function allocateStudentWithNotification($student_id, $site_id, $start_date, $end_date, $role, $notify_by = 'both') {
         try {
             $this->conn->beginTransaction();
+            $this->removeDuplicateActiveAllocations($student_id);
             
             // First, check if student already has active allocation
             $checkQuery = "SELECT alloc_id FROM allocation 
@@ -166,6 +209,7 @@ class Coordinator {
             $checkStmt->execute();
             
             if ($checkStmt->rowCount() > 0) {
+                $this->conn->rollBack();
                 return ['success' => false, 'message' => 'Student already has an active allocation'];
             }
             
@@ -254,7 +298,9 @@ class Coordinator {
             ];
             
         } catch (Exception $e) {
-            $this->conn->rollBack();
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -276,6 +322,7 @@ class Coordinator {
             $allocation = $getStmt->fetch(PDO::FETCH_ASSOC);
             
             if (!$allocation) {
+                $this->conn->rollBack();
                 return ['success' => false, 'message' => 'Allocation not found'];
             }
             
@@ -310,7 +357,7 @@ class Coordinator {
                     <tr><td style='padding: 8px;'><strong>Clinical Site:</strong></td>
                         <td>{$site['name']}</td>
                     </tr>
-                    <tr><td style='padding: 8px;'><strong>Location:</strong></td>
+                    <td><td style='padding: 8px;'><strong>Location:</strong></td>
                         <td>{$site['location']}</td>
                     </tr>
                     <tr><td style='padding: 8px;'><strong>Start Date:</strong></td>
@@ -354,7 +401,9 @@ class Coordinator {
             ];
             
         } catch (Exception $e) {
-            $this->conn->rollBack();
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -394,13 +443,44 @@ class Coordinator {
     }
     
     // ============ ALLOCATION METHODS ============
+
+    public function removeDuplicateActiveAllocations($student_id = null) {
+        $studentFilter = '';
+        if ($student_id !== null && $student_id !== '') {
+            $studentFilter = ' AND student_id = :student_id';
+        }
+
+        $query = "UPDATE allocation duplicate_alloc
+                  JOIN (
+                      SELECT student_id, MAX(alloc_id) as keep_alloc_id
+                      FROM allocation
+                      WHERE status = 'active'{$studentFilter}
+                      GROUP BY student_id
+                      HAVING COUNT(*) > 1
+                  ) keepers ON duplicate_alloc.student_id = keepers.student_id
+                  SET duplicate_alloc.status = 'completed'
+                  WHERE duplicate_alloc.status = 'active'
+                  AND duplicate_alloc.alloc_id <> keepers.keep_alloc_id";
+        $stmt = $this->conn->prepare($query);
+        if ($student_id !== null && $student_id !== '') {
+            $stmt->bindParam(':student_id', $student_id, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        return $stmt->rowCount();
+    }
     
     public function getAllocations() {
         $query = "SELECT a.*, s.name as student_name, s.student_number, c.name as site_name 
                   FROM allocation a 
+                  JOIN (
+                      SELECT student_id, MAX(alloc_id) as alloc_id
+                      FROM allocation
+                      WHERE status = 'active'
+                      GROUP BY student_id
+                  ) latest ON a.alloc_id = latest.alloc_id
                   JOIN student s ON a.student_id = s.student_id 
                   JOIN clinical_site c ON a.site_id = c.site_id 
-                  ORDER BY a.start_date DESC";
+                  ORDER BY a.start_date DESC, a.alloc_id DESC";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -417,9 +497,15 @@ class Coordinator {
                              ELSE 'Active'
                          END as placement_status
                   FROM allocation a 
+                  JOIN (
+                      SELECT student_id, MAX(alloc_id) as alloc_id
+                      FROM allocation
+                      WHERE status = 'active'
+                      GROUP BY student_id
+                  ) latest ON a.alloc_id = latest.alloc_id
                   JOIN student s ON a.student_id = s.student_id 
                   JOIN clinical_site c ON a.site_id = c.site_id 
-                  ORDER BY a.start_date DESC";
+                  ORDER BY a.start_date DESC, a.alloc_id DESC";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -439,10 +525,15 @@ class Coordinator {
                          c.site_id, c.name as site_name, a.start_date, a.end_date,
                          a.role
                   FROM allocation a
+                  JOIN (
+                      SELECT student_id, MAX(alloc_id) as alloc_id
+                      FROM allocation
+                      WHERE status = 'active'
+                      GROUP BY student_id
+                  ) latest ON a.alloc_id = latest.alloc_id
                   JOIN student s ON a.student_id = s.student_id
                   JOIN clinical_site c ON a.site_id = c.site_id
-                  WHERE a.status = 'active'
-                  AND NOT EXISTS (
+                  WHERE NOT EXISTS (
                       SELECT 1 FROM assessment ass 
                       WHERE ass.student_id = s.student_id
                   )
@@ -456,8 +547,8 @@ class Coordinator {
     
     public function getStudentsBySite() {
         $query = "SELECT c.site_id, c.name as site_name, c.location,
-                         COUNT(a.student_id) as total_students,
-                         GROUP_CONCAT(CONCAT(s.name, ' (', s.student_number, ')') SEPARATOR ', ') as students
+                         COUNT(DISTINCT a.student_id) as total_students,
+                         GROUP_CONCAT(DISTINCT CONCAT(s.name, ' (', s.student_number, ')') ORDER BY s.name SEPARATOR ', ') as students
                   FROM clinical_site c
                   LEFT JOIN allocation a ON c.site_id = a.site_id AND a.status = 'active'
                   LEFT JOIN student s ON a.student_id = s.student_id
@@ -481,7 +572,7 @@ class Coordinator {
                     c.max_students,
                     COUNT(DISTINCT a.student_id) as total_students,
                     GROUP_CONCAT(
-                        CONCAT(s.name, ' (', s.student_number, ')') 
+                        DISTINCT CONCAT(s.name, ' (', s.student_number, ')') 
                         ORDER BY s.name 
                         SEPARATOR '||'
                     ) as students_list
@@ -505,7 +596,7 @@ class Coordinator {
         return $results;
     }
     
-    // Get students for a specific clinical site (FIXED VERSION)
+    // Get students for a specific clinical site
     public function getStudentsBySpecificSite($site_id) {
         $query = "SELECT 
                     c.site_id,
@@ -516,7 +607,7 @@ class Coordinator {
                     c.max_students,
                     COUNT(DISTINCT a.student_id) as total_students,
                     GROUP_CONCAT(
-                        CONCAT(s.name, ' (', s.student_number, ')') 
+                        DISTINCT CONCAT(s.name, ' (', s.student_number, ')') 
                         ORDER BY s.name 
                         SEPARATOR '||'
                     ) as students_list
@@ -536,7 +627,6 @@ class Coordinator {
             $result['students'] = [];
         }
         
-        // Return as array with one site (or empty array if no site found)
         return $result ? [$result] : [];
     }
     
@@ -577,7 +667,16 @@ class Coordinator {
                     al.end_date,
                     al.role
                 FROM student s
-                LEFT JOIN allocation al ON s.student_id = al.student_id AND al.status = 'active'
+                LEFT JOIN (
+                    SELECT a1.*
+                    FROM allocation a1
+                    JOIN (
+                        SELECT student_id, MAX(alloc_id) as alloc_id
+                        FROM allocation
+                        WHERE status = 'active'
+                        GROUP BY student_id
+                    ) latest ON a1.alloc_id = latest.alloc_id
+                ) al ON s.student_id = al.student_id
                 LEFT JOIN clinical_site c ON al.site_id = c.site_id
                 LEFT JOIN assessment a ON s.student_id = a.student_id
                 WHERE 1=1";
@@ -666,7 +765,7 @@ class Coordinator {
         $query = "SELECT 
                     (SELECT COUNT(*) FROM student) as total_students,
                     (SELECT COUNT(*) FROM clinical_site) as total_sites,
-                    (SELECT COUNT(*) FROM allocation WHERE status = 'active') as active_placements,
+                    (SELECT COUNT(DISTINCT student_id) FROM allocation WHERE status = 'active') as active_placements,
                     (SELECT COUNT(*) FROM assessment WHERE assessor_type = 'lecturer') as completed_assessments,
                     (SELECT COUNT(*) FROM assessment WHERE assessor_type = 'lecturer' AND 
                         ((punctuality_score + dressing_score + communication_score) / 3) >= 3.0) as passed_students,
@@ -681,8 +780,8 @@ class Coordinator {
     
     public function getStudentsBySiteFiltered($site_id = null) {
         $sql = "SELECT c.site_id, c.name as site_name, c.location,
-                       COUNT(a.student_id) as total_students,
-                       GROUP_CONCAT(CONCAT(s.name, ' (', s.student_number, ')') SEPARATOR ', ') as students
+                       COUNT(DISTINCT a.student_id) as total_students,
+                       GROUP_CONCAT(DISTINCT CONCAT(s.name, ' (', s.student_number, ')') ORDER BY s.name SEPARATOR ', ') as students
                 FROM clinical_site c
                 LEFT JOIN allocation a ON c.site_id = a.site_id AND a.status = 'active'
                 LEFT JOIN student s ON a.student_id = s.student_id";
@@ -705,10 +804,15 @@ class Coordinator {
         $sql = "SELECT s.student_id, s.name as student_name, s.student_number, s.cohort,
                        c.site_id, c.name as site_name, a.start_date, a.end_date, a.role
                 FROM allocation a
+                JOIN (
+                    SELECT student_id, MAX(alloc_id) as alloc_id
+                    FROM allocation
+                    WHERE status = 'active'
+                    GROUP BY student_id
+                ) latest ON a.alloc_id = latest.alloc_id
                 JOIN student s ON a.student_id = s.student_id
                 JOIN clinical_site c ON a.site_id = c.site_id
-                WHERE a.status = 'active'
-                AND NOT EXISTS (SELECT 1 FROM assessment ass WHERE ass.student_id = s.student_id)";
+                WHERE NOT EXISTS (SELECT 1 FROM assessment ass WHERE ass.student_id = s.student_id)";
         
         if ($site_id) {
             $sql .= " AND c.site_id = :site_id";
@@ -769,7 +873,16 @@ class Coordinator {
                        ROUND(AVG(ass.communication_score), 1) as avg_communication,
                        COUNT(ass.assess_id) as total_assessments
                 FROM clinical_site c
-                LEFT JOIN allocation a ON c.site_id = a.site_id
+                LEFT JOIN (
+                    SELECT a1.*
+                    FROM allocation a1
+                    JOIN (
+                        SELECT student_id, MAX(alloc_id) as alloc_id
+                        FROM allocation
+                        WHERE status = 'active'
+                        GROUP BY student_id
+                    ) latest ON a1.alloc_id = latest.alloc_id
+                ) a ON c.site_id = a.site_id
                 LEFT JOIN assessment ass ON a.student_id = ass.student_id AND a.site_id = ass.site_id";
         
         if ($site_id) {

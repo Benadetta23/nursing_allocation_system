@@ -18,6 +18,13 @@ $message = '';
 $error = '';
 $allocation_result = [];
 
+// Helper function to clean display
+function cleanDisplay($text) {
+    if ($text === null) return '';
+    $text = str_replace(['(', ')', '\\'], '', $text);
+    return trim($text);
+}
+
 // Get unallocated students
 $all_students = $coordinator->getStudents();
 $sites = $coordinator->getSites();
@@ -29,7 +36,7 @@ foreach ($allocations as $alloc) {
     $allocated_students[] = $alloc['student_id'];
 }
 
-// Get unallocated students
+// Get unallocated students with year info
 $unallocated_students = [];
 foreach ($all_students as $student) {
     if (!in_array($student['student_id'], $allocated_students)) {
@@ -37,14 +44,37 @@ foreach ($all_students as $student) {
     }
 }
 
-// Calculate total available capacity
-$total_capacity = 0;
-$total_allocated = 0;
+// Calculate total available capacity per site
+$site_capacity = [];
+$total_available = 0;
 foreach ($sites as $site) {
-    $total_capacity += $site['max_students'];
+    $site_capacity[$site['site_id']] = [
+        'name' => $site['name'],
+        'capacity' => $site['max_students'],
+        'current' => 0,
+        'available' => $site['max_students']
+    ];
+    $total_available += $site['max_students'];
 }
-$total_allocated = count($allocated_students);
-$available_slots = $total_capacity - $total_allocated;
+
+// Count current allocations per site
+foreach ($allocations as $alloc) {
+    if (isset($site_capacity[$alloc['site_id']])) {
+        $site_capacity[$alloc['site_id']]['current']++;
+        $site_capacity[$alloc['site_id']]['available'] = $site_capacity[$alloc['site_id']]['capacity'] - $site_capacity[$alloc['site_id']]['current'];
+    }
+}
+
+// Calculate total available slots
+$available_slots = array_sum(array_column($site_capacity, 'available'));
+
+// Role mapping based on year of study
+$role_by_year = [
+    1 => 'General Nursing',
+    2 => 'Midwifery',
+    3 => 'Critical Care',
+    4 => 'Preceptorship'
+];
 
 // Handle auto allocation
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
@@ -54,58 +84,74 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     
     $start_date = $_POST['start_date'];
     $end_date = $_POST['end_date'];
+    $role_mode = $_POST['role_mode'] ?? 'auto';
     $default_role = $_POST['default_role'] ?? 'General Nursing';
     $send_notifications = isset($_POST['send_notifications']) ? true : false;
     
-    // Calculate site load
-    $site_load = [];
-    foreach ($sites as $site) {
-        $site_load[$site['site_id']] = [
-            'name' => $site['name'],
-            'capacity' => $site['max_students'],
-            'current' => 0,
-            'available' => $site['max_students']
-        ];
-    }
+    // Reset site load for this allocation run
+    $current_site_load = $site_capacity;
     
-    // Count current allocations per site
-    foreach ($allocations as $alloc) {
-        if (isset($site_load[$alloc['site_id']])) {
-            $site_load[$alloc['site_id']]['current']++;
-            $site_load[$alloc['site_id']]['available'] = $site_load[$alloc['site_id']]['capacity'] - $site_load[$alloc['site_id']]['current'];
-        }
-    }
-    
-    // Sort sites by available capacity (most available first)
-    uasort($site_load, function($a, $b) {
+    // Sort sites by available capacity (most available first) for round-robin
+    $sorted_sites = $current_site_load;
+    uasort($sorted_sites, function($a, $b) {
         return $b['available'] - $a['available'];
     });
     
     $notification = new Notification($conn);
     
+    // First, count how many students we need to allocate
+    $students_to_allocate = count($unallocated_students);
+    $total_available_capacity = array_sum(array_column($current_site_load, 'available'));
+    
+    if ($students_to_allocate > $total_available_capacity) {
+        $allocation_errors[] = "Warning: Not enough capacity! Need $students_to_allocate slots, only $total_available_capacity available.";
+    }
+    
+    // Distribute students evenly across sites using round-robin
+    $site_allocation_count = [];
+    foreach ($sorted_sites as $site_id => $site) {
+        $site_allocation_count[$site_id] = 0;
+    }
+    
+    $site_index = 0;
+    $site_ids = array_keys($sorted_sites);
+    $site_count = count($site_ids);
+    
     foreach ($unallocated_students as $student) {
         $allocated = false;
+        $attempts = 0;
         
-        // Try to allocate to site with available capacity
-        foreach ($site_load as $site_id => $site) {
-            if ($site['available'] > 0) {
+        // Try up to number of sites times to find a site with capacity
+        while ($attempts < $site_count && !$allocated) {
+            $site_id = $site_ids[$site_index % $site_count];
+            $site = $sorted_sites[$site_id];
+            
+            if ($site['available'] > 0 && $current_site_load[$site_id]['available'] > 0) {
+                // Determine role based on mode
+                if ($role_mode == 'auto') {
+                    $student_year = $student['year_of_study'] ?? 1;
+                    $assigned_role = $role_by_year[$student_year] ?? 'General Nursing';
+                } else {
+                    $assigned_role = $default_role;
+                }
+                
                 $result = $coordinator->createAllocation(
                     $student['student_id'],
                     $site_id,
                     $start_date,
                     $end_date,
-                    $default_role
+                    $assigned_role
                 );
                 
                 if ($result) {
                     $allocation_count++;
-                    $site_load[$site_id]['current']++;
-                    $site_load[$site_id]['available']--;
+                    $current_site_load[$site_id]['current']++;
+                    $current_site_load[$site_id]['available']--;
+                    $site_allocation_count[$site_id]++;
                     $allocated = true;
                     
                     // Send notification if enabled
                     if ($send_notifications) {
-                        // Get student email and name
                         $studentQuery = "SELECT email, name FROM student WHERE student_id = :student_id";
                         $studentStmt = $conn->prepare($studentQuery);
                         $studentStmt->bindParam(':student_id', $student['student_id']);
@@ -113,14 +159,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
                         $studentData = $studentStmt->fetch(PDO::FETCH_ASSOC);
                         
                         if ($studentData) {
-                            // Get site name
                             $siteQuery = "SELECT name FROM clinical_site WHERE site_id = :site_id";
                             $siteStmt = $conn->prepare($siteQuery);
                             $siteStmt->bindParam(':site_id', $site_id);
                             $siteStmt->execute();
                             $siteData = $siteStmt->fetch(PDO::FETCH_ASSOC);
                             
-                            // Send email and in-app notification
                             $notify_result = $notification->sendAllocationNotification(
                                 $student['student_id'],
                                 $studentData['email'],
@@ -128,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
                                 $siteData['name'],
                                 $start_date,
                                 $end_date,
-                                $default_role,
+                                $assigned_role,
                                 'both'
                             );
                             
@@ -137,9 +181,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
                             }
                         }
                     }
-                    break;
                 }
             }
+            $attempts++;
+            $site_index++;
         }
         
         if (!$allocated) {
@@ -147,14 +192,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         }
     }
     
+    // Build result message - SIMPLIFIED (no distribution details)
     if ($allocation_count > 0) {
         $message = "Auto-allocation completed! Successfully allocated: $allocation_count students.";
+        
         if ($send_notifications && count($notified_students) > 0) {
             $message .= " Notifications sent to " . count($notified_students) . " students.";
         }
         if (!empty($allocation_errors)) {
             $message .= " " . count($allocation_errors) . " students could not be allocated due to capacity issues.";
         }
+        
         // Refresh data
         header("Location: auto_allocate.php?success=" . urlencode($message));
         exit;
@@ -182,7 +230,25 @@ foreach ($all_students as $student) {
 }
 
 $total_allocated = count($allocated_students);
+$total_capacity = array_sum(array_column($sites, 'max_students'));
 $available_slots = $total_capacity - $total_allocated;
+
+// Calculate per-site stats for display
+$site_stats = [];
+foreach ($sites as $site) {
+    $current = 0;
+    foreach ($allocations as $alloc) {
+        if ($alloc['site_id'] == $site['site_id']) {
+            $current++;
+        }
+    }
+    $site_stats[$site['site_id']] = [
+        'name' => $site['name'],
+        'capacity' => $site['max_students'],
+        'current' => $current,
+        'available' => $site['max_students'] - $current
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -285,7 +351,7 @@ $available_slots = $total_capacity - $total_allocated;
         }
         
         .container {
-            max-width: 600px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 30px 20px;
         }
@@ -332,6 +398,47 @@ $available_slots = $total_capacity - $total_allocated;
             font-size: 0.75rem;
         }
         
+        .site-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .site-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 3px solid #c3a343;
+        }
+        
+        .site-name {
+            font-weight: 600;
+            color: #4a2f1a;
+            margin-bottom: 10px;
+        }
+        
+        .site-capacity {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .capacity-bar {
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .capacity-fill {
+            height: 100%;
+            background: #28a745;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        
         .form-group {
             margin-bottom: 20px;
         }
@@ -356,6 +463,21 @@ $available_slots = $total_capacity - $total_allocated;
         .form-group select:focus {
             outline: none;
             border-color: #c3a343;
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: normal;
+            cursor: pointer;
         }
         
         .checkbox-group {
@@ -412,11 +534,39 @@ $available_slots = $total_capacity - $total_allocated;
             border-left: 4px solid #dc3545;
         }
         
+        .info-box {
+            background: #f0f7ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border-left: 4px solid #c3a343;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 5px;
+        }
+        
+        .info-box li {
+            font-size: 0.8rem;
+            margin: 3px 0;
+        }
+        
+        .manual-role-div {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #c3a343;
+        }
+        
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
             .nav-tabs { justify-content: center; }
             .stats { flex-direction: column; }
+            .site-stats { grid-template-columns: 1fr; }
+            .radio-group { flex-direction: column; gap: 10px; }
         }
     </style>
 </head>
@@ -424,7 +574,7 @@ $available_slots = $total_capacity - $total_allocated;
     <div class="header">
         <h1>Daeyang University - Auto Allocation</h1>
         <div class="user-info">
-            <span>Welcome, <?php echo htmlspecialchars($_SESSION['name']); ?></span>
+            <span>Welcome, <?php echo cleanDisplay(htmlspecialchars($_SESSION['name'])); ?></span>
             <span class="role-badge">Coordinator</span>
             <a href="actions/logout.php" class="btn-logout">Logout</a>
         </div>
@@ -432,19 +582,41 @@ $available_slots = $total_capacity - $total_allocated;
     
     <div class="nav-tabs">
         <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Clinical Sites</a>
-        <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Students</a>
+        <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Manage Students</a>
         <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab active">Auto Allocate</a>
+        <a href="?tab=assign" class="nav-tab">Assign Staff</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
     </div>
     
     <div class="container">
         <?php if ($message): ?>
-            <div class="success-msg"><?php echo htmlspecialchars($message); ?></div>
+            <div class="success-msg"><?php echo cleanDisplay(htmlspecialchars($message)); ?></div>
         <?php endif; ?>
         <?php if ($error): ?>
-            <div class="error-msg"><?php echo htmlspecialchars($error); ?></div>
+            <div class="error-msg"><?php echo cleanDisplay(htmlspecialchars($error)); ?></div>
         <?php endif; ?>
+        
+        <!-- Site Capacity Overview -->
+        <div class="card">
+            <h2>Clinical Sites Capacity</h2>
+            <div class="site-stats">
+                <?php foreach ($site_stats as $site): ?>
+                <div class="site-card">
+                    <div class="site-name"><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></div>
+                    <div class="site-capacity">
+                        <?php echo $site['current']; ?> / <?php echo $site['capacity']; ?> students
+                    </div>
+                    <div class="capacity-bar">
+                        <div class="capacity-fill" style="width: <?php echo ($site['capacity'] > 0) ? ($site['current'] / $site['capacity']) * 100 : 0; ?>%"></div>
+                    </div>
+                    <div class="site-capacity">
+                        Available: <?php echo $site['available']; ?> slots
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
         
         <div class="stats">
             <div class="stat-box">
@@ -482,9 +654,34 @@ $available_slots = $total_capacity - $total_allocated;
                         <label>Placement End Date</label>
                         <input type="date" name="end_date" required>
                     </div>
+                    
                     <div class="form-group">
-                        <label>Default Role</label>
-                        <input type="text" name="default_role" value="General Nursing" required>
+                        <label>Role Assignment Mode</label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" name="role_mode" value="auto" checked> Auto (Based on Year of Study)
+                            </label>
+                            <label>
+                                <input type="radio" name="role_mode" value="manual"> Manual (Same Role for All)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="manualRoleDiv" class="manual-role-div" style="display: none;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>Default Role (for all students)</label>
+                            <input type="text" name="default_role" value="General Nursing">
+                        </div>
+                    </div>
+                    
+                    <div id="autoRoleInfo" class="info-box">
+                        <p><strong>Auto Role Mapping (Based on Year of Study):</strong></p>
+                        <ul>
+                            <li>Year 1 → General Nursing (Basic Care)</li>
+                            <li>Year 2 → Midwifery (Specialized Care)</li>
+                            <li>Year 3 → Critical Care (Complex Care)</li>
+                            <li>Year 4 → Preceptorship (Leadership)</li>
+                        </ul>
                     </div>
                     
                     <div class="checkbox-group">
@@ -497,5 +694,29 @@ $available_slots = $total_capacity - $total_allocated;
             <?php endif; ?>
         </div>
     </div>
+    
+    <script>
+        // Toggle role mode
+        const roleModeRadios = document.querySelectorAll('input[name="role_mode"]');
+        const manualRoleDiv = document.getElementById('manualRoleDiv');
+        const autoRoleInfo = document.getElementById('autoRoleInfo');
+        
+        function toggleRoleMode() {
+            const selectedMode = document.querySelector('input[name="role_mode"]:checked').value;
+            if (selectedMode === 'manual') {
+                manualRoleDiv.style.display = 'block';
+                autoRoleInfo.style.display = 'none';
+            } else {
+                manualRoleDiv.style.display = 'none';
+                autoRoleInfo.style.display = 'block';
+            }
+        }
+        
+        roleModeRadios.forEach(radio => {
+            radio.addEventListener('change', toggleRoleMode);
+        });
+        
+        toggleRoleMode();
+    </script>
 </body>
 </html>
