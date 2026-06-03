@@ -322,6 +322,7 @@ if (isset($_GET['download_template'])) {
             .upload-area { padding: 20px; }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -338,6 +339,7 @@ if (isset($_GET['download_template'])) {
         <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Students</a>
         <a href="upload_students.php" class="nav-tab active">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab">Auto Allocate</a>
+        <a href="coordinator_Dashboard.php?tab=assign" class="nav-tab">Assign Staff</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
     </div>
     
@@ -379,5 +381,6 @@ if (isset($_GET['download_template'])) {
             </div>
         </div>
     </div>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

@@ -88,6 +88,7 @@ if (isset($_POST['delete_site'])) {
         .error { background: #f8d7da; color: #721c24; }
         @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -166,5 +167,6 @@ if (isset($_POST['delete_site'])) {
             </div>
         </div>
     </div>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

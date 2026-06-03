@@ -647,6 +647,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             .data-table td { padding: 8px; font-size: 0.8rem; }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -752,17 +753,93 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <div id="studentsSection" class="content-section <?php echo $active_tab == 'students' ? 'active' : ''; ?>">
             <div class="info-box">
                 <p><strong>How to add students:</strong> Use the <strong>Bulk Upload</strong> tab to add multiple students via CSV file.</p>
-                <p><strong>Student Management:</strong> View, Archive, or Delete students from the list below.</p>
+                <p><strong>Student Management:</strong> View each student, their clinical placement, and archive or delete records from the list below.</p>
             </div>
             
             <div class="action-bar">
                 <div class="action-buttons">
-                    <button class="btn-view" onclick="toggleView('studentsTable')">View Student List</button>
+                    <button class="btn-view" onclick="toggleView('studentsTable')">View Students</button>
                 </div>
-                <span>Click View to see all students</span>
+                <span>Click View to see all students and their assigned clinical sites</span>
             </div>
+
+            <?php
+            $students = $coordinator->getStudents();
+            $activeAllocations = $coordinator->getAllocationsWithDaysRemaining();
+            $allocationByStudent = [];
+            $studentFilterSites = [];
+            $studentFilterYears = [];
+            $studentFilterCohorts = [];
+
+            foreach ($activeAllocations as $allocation) {
+                $allocationByStudent[$allocation['student_id']] = $allocation;
+                if (!empty($allocation['site_name'])) {
+                    $studentFilterSites[$allocation['site_name']] = $allocation['site_name'];
+                }
+            }
+
+            foreach ($students as $student) {
+                if (!empty($student['year_of_study'])) {
+                    $studentFilterYears[$student['year_of_study']] = $student['year_of_study'];
+                }
+                if (!empty($student['cohort'])) {
+                    $studentFilterCohorts[$student['cohort']] = $student['cohort'];
+                }
+            }
+
+            natcasesort($studentFilterSites);
+            ksort($studentFilterYears);
+            rsort($studentFilterCohorts);
+            ?>
             
             <div id="studentsTable" class="data-table-container">
+                <div class="filter-panel">
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label for="studentSearch">Search Student</label>
+                            <input type="text" id="studentSearch" placeholder="Name, number, email, site">
+                        </div>
+                        <div class="form-group">
+                            <label for="studentSiteFilter">Clinical Site</label>
+                            <select id="studentSiteFilter">
+                                <option value="">All sites</option>
+                                <?php foreach ($studentFilterSites as $siteName): ?>
+                                    <option value="<?php echo cleanDisplay(htmlspecialchars($siteName)); ?>"><?php echo cleanDisplay(htmlspecialchars($siteName)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="studentAssignmentFilter">Assignment</label>
+                            <select id="studentAssignmentFilter">
+                                <option value="">All students</option>
+                                <option value="assigned">Assigned</option>
+                                <option value="unassigned">Not assigned</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="studentYearFilter">Year</label>
+                            <select id="studentYearFilter">
+                                <option value="">All years</option>
+                                <?php foreach ($studentFilterYears as $year): ?>
+                                    <option value="<?php echo cleanDisplay(htmlspecialchars($year)); ?>">Year <?php echo cleanDisplay(htmlspecialchars($year)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="studentCohortFilter">Cohort</label>
+                            <select id="studentCohortFilter">
+                                <option value="">All cohorts</option>
+                                <?php foreach ($studentFilterCohorts as $cohort): ?>
+                                    <option value="<?php echo cleanDisplay(htmlspecialchars($cohort)); ?>"><?php echo cleanDisplay(htmlspecialchars($cohort)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filter-actions">
+                        <span id="studentFilterCount"><?php echo count($students); ?> students shown</span>
+                        <button type="button" class="btn-secondary" onclick="resetStudentFilters()">Reset Filters</button>
+                    </div>
+                </div>
                 <div class="card" style="padding: 0; overflow: hidden; overflow-x: auto;">
                     <table class="data-table">
                         <thead>
@@ -773,21 +850,65 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <th>Cohort</th>
                                 <th>Year</th>
                                 <th>Mode of Entry</th>
+                                <th>Assigned Site</th>
+                                <th>Role</th>
+                                <th>Placement Period</th>
+                                <th>Placement Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php 
-                            $students = $coordinator->getStudents();
                             foreach ($students as $student): 
+                                $studentAllocation = $allocationByStudent[$student['student_id']] ?? null;
+                                $placementSite = $studentAllocation['site_name'] ?? 'Not assigned';
+                                $placementRole = $studentAllocation['role'] ?? '-';
+                                $placementStatus = $studentAllocation['placement_status'] ?? ($studentAllocation['status'] ?? 'Active');
+                                $studentAssignmentState = $studentAllocation ? 'assigned' : 'unassigned';
+                                $studentSearchText = strtolower(trim(
+                                    ($student['student_number'] ?? '') . ' ' .
+                                    ($student['name'] ?? '') . ' ' .
+                                    ($student['email'] ?? '') . ' ' .
+                                    ($student['cohort'] ?? '') . ' ' .
+                                    ($student['year_of_study'] ?? '') . ' ' .
+                                    ($student['mode_of_entry'] ?? '') . ' ' .
+                                    $placementSite . ' ' .
+                                    $placementRole . ' ' .
+                                    $placementStatus
+                                ));
                             ?>
-                            <tr>
+                            <tr class="student-row"
+                                data-search="<?php echo htmlspecialchars($studentSearchText, ENT_QUOTES); ?>"
+                                data-site="<?php echo htmlspecialchars(cleanDisplay($placementSite), ENT_QUOTES); ?>"
+                                data-assignment="<?php echo $studentAssignmentState; ?>"
+                                data-year="<?php echo htmlspecialchars(cleanDisplay($student['year_of_study'] ?? ''), ENT_QUOTES); ?>"
+                                data-cohort="<?php echo htmlspecialchars(cleanDisplay($student['cohort'] ?? ''), ENT_QUOTES); ?>">
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['student_number'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['name'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['email'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['cohort'])); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['year_of_study'] ?? 'N/A')); ?></td>
                                 <td><?php echo cleanDisplay(htmlspecialchars($student['mode_of_entry'] ?? 'Generic')); ?></td>
+                                <td>
+                                    <?php echo cleanDisplay(htmlspecialchars($placementSite)); ?>
+                                </td>
+                                <td>
+                                    <?php echo cleanDisplay(htmlspecialchars($placementRole)); ?>
+                                </td>
+                                <td>
+                                    <?php if ($studentAllocation): ?>
+                                        <?php echo date('M d, Y', strtotime($studentAllocation['start_date'])); ?> - <?php echo date('M d, Y', strtotime($studentAllocation['end_date'])); ?>
+                                    <?php else: ?>
+                                        -
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($studentAllocation): ?>
+                                        <span class="badge-assigned"><?php echo cleanDisplay(htmlspecialchars($placementStatus)); ?></span>
+                                    <?php else: ?>
+                                        <span class="badge-unassigned">Not Assigned</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <form method="POST" style="display:inline-block; margin-right: 5px;">
                                         <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
@@ -800,10 +921,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
+
+                            <?php if (!empty($students)): ?>
+                            <tr id="studentsFilterEmpty" style="display: none;">
+                                <td colspan="11" class="no-data">No students match the selected filters.</td>
+                            </tr>
+                            <?php endif; ?>
                             
                             <?php if (empty($students)): ?>
                             <tr>
-                                <td colspan="7" class="no-data">No students found. Use Bulk Upload to add students.</td>
+                                <td colspan="11" class="no-data">No students found. Use Bulk Upload to add students.</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -1041,13 +1168,78 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 table.classList.add('visible');
             }
         }
+
+        function filterStudents() {
+            var searchInput = document.getElementById('studentSearch');
+            var siteFilter = document.getElementById('studentSiteFilter');
+            var assignmentFilter = document.getElementById('studentAssignmentFilter');
+            var yearFilter = document.getElementById('studentYearFilter');
+            var cohortFilter = document.getElementById('studentCohortFilter');
+            var countLabel = document.getElementById('studentFilterCount');
+            var emptyRow = document.getElementById('studentsFilterEmpty');
+            var rows = document.querySelectorAll('#studentsTable .student-row');
+
+            if (!searchInput || !siteFilter || !assignmentFilter || !yearFilter || !cohortFilter) {
+                return;
+            }
+
+            var searchValue = searchInput.value.trim().toLowerCase();
+            var siteValue = siteFilter.value;
+            var assignmentValue = assignmentFilter.value;
+            var yearValue = yearFilter.value;
+            var cohortValue = cohortFilter.value;
+            var visibleCount = 0;
+
+            rows.forEach(function(row) {
+                var matchesSearch = !searchValue || row.dataset.search.indexOf(searchValue) !== -1;
+                var matchesSite = !siteValue || row.dataset.site === siteValue;
+                var matchesAssignment = !assignmentValue || row.dataset.assignment === assignmentValue;
+                var matchesYear = !yearValue || row.dataset.year === yearValue;
+                var matchesCohort = !cohortValue || row.dataset.cohort === cohortValue;
+                var isVisible = matchesSearch && matchesSite && matchesAssignment && matchesYear && matchesCohort;
+
+                row.style.display = isVisible ? '' : 'none';
+                if (isVisible) {
+                    visibleCount++;
+                }
+            });
+
+            if (countLabel) {
+                countLabel.textContent = visibleCount + (visibleCount === 1 ? ' student shown' : ' students shown');
+            }
+            if (emptyRow) {
+                emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+            }
+        }
+
+        function resetStudentFilters() {
+            var filterIds = ['studentSearch', 'studentSiteFilter', 'studentAssignmentFilter', 'studentYearFilter', 'studentCohortFilter'];
+            filterIds.forEach(function(id) {
+                var field = document.getElementById(id);
+                if (field) {
+                    field.value = '';
+                }
+            });
+            filterStudents();
+        }
         
         document.addEventListener('DOMContentLoaded', function() {
             var tables = document.querySelectorAll('.data-table-container');
             tables.forEach(function(table) {
                 table.classList.remove('visible');
             });
+
+            ['studentSearch', 'studentSiteFilter', 'studentAssignmentFilter', 'studentYearFilter', 'studentCohortFilter'].forEach(function(id) {
+                var field = document.getElementById(id);
+                if (field) {
+                    field.addEventListener('input', filterStudents);
+                    field.addEventListener('change', filterStudents);
+                }
+            });
+
+            filterStudents();
         });
     </script>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

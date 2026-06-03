@@ -114,6 +114,7 @@ foreach ($coordinator->getStudents() as $student) {
         .error { background: #f8d7da; color: #721c24; }
         @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -210,5 +211,6 @@ foreach ($coordinator->getStudents() as $student) {
             </div>
         </div>
     </div>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

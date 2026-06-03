@@ -846,6 +846,7 @@ if ($selected_site_id) {
             }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -1322,5 +1323,6 @@ if ($selected_site_id) {
             }
         }
     </script>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

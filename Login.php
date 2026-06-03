@@ -175,6 +175,7 @@ session_start();
             }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="login-container">
@@ -210,5 +211,6 @@ session_start();
             </form>
         </div>
     </div>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

@@ -1,0 +1,491 @@
+/* ============================================
+   DAEYANG UNIVERSITY - WHITE & BROWN THEME
+   Loaded after page-level styles to keep the UI consistent.
+   ============================================ */
+
+:root {
+    --du-bg: #ffffff;
+    --du-surface: #fbfaf8;
+    --du-surface-strong: #f5f1eb;
+    --du-brown: #4a2f1a;
+    --du-brown-soft: #654321;
+    --du-text: #4a2f1a;
+    --du-muted: #6f6258;
+    --du-gold: #c3a343;
+    --du-border: #eadfce;
+    --du-shadow: 0 8px 24px rgba(74, 47, 26, 0.08);
+}
+
+html,
+body {
+    background: var(--du-bg) !important;
+    background-image: none !important;
+    color: var(--du-text) !important;
+}
+
+body::before {
+    display: none !important;
+}
+
+body,
+input,
+select,
+textarea,
+button {
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+label,
+strong,
+.card h2,
+.card h3,
+.card h4,
+.section-header h2,
+.about-card h3,
+.feature-card h3,
+.partner-card h4,
+.site-name,
+.stat-number,
+.notification-title,
+.info-label,
+.final-grade-score,
+.upload-area h3 {
+    color: var(--du-text) !important;
+}
+
+p,
+td,
+.stat-label,
+.site-capacity,
+.welcome-card p,
+.section-header p,
+.partner-card p,
+.notification-message,
+.notification-time,
+.info-value,
+.result-date,
+.score-label,
+.comments-label,
+.no-data,
+.upload-area p {
+    color: var(--du-muted) !important;
+}
+
+a {
+    color: var(--du-brown) !important;
+}
+
+/* Header and navigation */
+.header,
+.dashboard-header,
+.navbar,
+.dropdown-header,
+.modal-header,
+.footer,
+.cta {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+    border-color: var(--du-gold) !important;
+}
+
+.header h1,
+.dashboard-header h1,
+.header .user-info span,
+.dashboard-header .user-info span,
+.brand-text h3,
+.nav-menu a,
+.dropdown-header h4,
+.modal-header h3,
+.footer h3,
+.footer h4,
+.footer p,
+.footer a,
+.cta h2 {
+    color: #ffffff !important;
+}
+
+.brand-text span,
+.brand-icon,
+.bell-icon,
+.dropdown-header a,
+.footer-about h3,
+.footer-links h4,
+.footer-contact h4,
+.footer-links ul li a:hover,
+.nav-menu a:hover,
+.mobile-toggle {
+    color: var(--du-gold) !important;
+}
+
+.nav-menu .btn-login {
+    background: var(--du-gold) !important;
+    color: var(--du-brown) !important;
+    padding: 8px 16px;
+    border-radius: 30px;
+}
+
+.brand-icon {
+    background: var(--du-gold) !important;
+    color: var(--du-brown) !important;
+}
+
+.nav-tabs {
+    background: var(--du-surface-strong) !important;
+    border-bottom: 1px solid var(--du-border) !important;
+    box-shadow: 0 3px 12px rgba(74, 47, 26, 0.05);
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+}
+
+.nav-tab {
+    color: var(--du-brown) !important;
+    background: transparent !important;
+    flex: 0 0 auto;
+}
+
+.nav-tab:hover {
+    background: #efe7dc !important;
+    color: var(--du-brown) !important;
+}
+
+.nav-tab.active {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+    border-bottom-color: var(--du-gold) !important;
+}
+
+/* Cards and content surfaces */
+.container,
+.dashboard-container {
+    background: transparent !important;
+}
+
+.card,
+.welcome-card,
+.action-bar,
+.stat-card,
+.stat-box,
+.site-card,
+.student-card,
+.result-item,
+.info-box,
+.final-grade-card,
+.assigned-site-info,
+.manual-role-div,
+.upload-area,
+.notification-dropdown,
+.modal-content,
+.login-card,
+.about-card,
+.feature-card,
+.partner-card,
+.image-card,
+.student-info-card,
+.edit-profile-form,
+.score,
+.info-card,
+.scores-card,
+.comments-card {
+    background: var(--du-surface) !important;
+    color: var(--du-text) !important;
+    border-color: var(--du-border) !important;
+    box-shadow: var(--du-shadow) !important;
+}
+
+.card,
+.welcome-card,
+.modal-content,
+.login-card {
+    border: 1px solid var(--du-border) !important;
+}
+
+.card h2,
+.welcome-card,
+.student-card,
+.result-item,
+.info-box,
+.assigned-site-info,
+.manual-role-div,
+.upload-area,
+.student-info-card,
+.final-grade-card {
+    border-left-color: var(--du-gold) !important;
+    border-bottom-color: var(--du-gold) !important;
+}
+
+.about-icon,
+.feature-icon,
+.card-icon {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+}
+
+.section-tag {
+    background: rgba(195, 163, 67, 0.14) !important;
+    color: var(--du-gold) !important;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary,
+.btn-template,
+.btn-light,
+.btn-outline,
+.btn-outline-light,
+.btn-view,
+.btn-save,
+.btn-cancel,
+.btn-signin,
+.btn-upload,
+.btn-back,
+.btn-logout {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: auto !important;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 8px 14px !important;
+    border-radius: 6px !important;
+    font-size: 0.85rem !important;
+    line-height: 1.2;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.btn-delete,
+.btn-danger,
+.btn-archive-student {
+    min-height: 28px;
+    padding: 5px 10px !important;
+    border-radius: 5px !important;
+    font-size: 0.75rem !important;
+    line-height: 1.2;
+}
+
+.nav-tab {
+    padding: 10px 16px !important;
+    font-size: 0.88rem !important;
+    line-height: 1.2;
+}
+
+.nav-menu .btn-login {
+    padding: 7px 13px !important;
+    font-size: 0.84rem !important;
+}
+
+.btn-primary,
+.btn-view,
+.btn-save,
+.btn-signin,
+.btn-upload,
+.btn-back {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+    border-color: var(--du-brown) !important;
+}
+
+.btn-primary:hover,
+.btn-view:hover,
+.btn-save:hover,
+.btn-signin:hover,
+.btn-upload:hover,
+.btn-back:hover {
+    background: var(--du-brown-soft) !important;
+    color: #ffffff !important;
+}
+
+.btn-secondary,
+.btn-template,
+.btn-light,
+.role-badge {
+    background: var(--du-gold) !important;
+    color: var(--du-brown) !important;
+}
+
+.btn-outline,
+.btn-outline-light {
+    background: transparent !important;
+    border-color: var(--du-brown) !important;
+    color: var(--du-brown) !important;
+}
+
+.btn-outline:hover,
+.btn-outline-light:hover {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+}
+
+.cta .btn-outline-light {
+    border-color: #ffffff !important;
+    color: #ffffff !important;
+}
+
+.cta .btn-outline-light:hover {
+    background: #ffffff !important;
+    color: var(--du-brown) !important;
+}
+
+.btn-logout {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+.btn-cancel {
+    background: #eee7dc !important;
+    color: var(--du-brown) !important;
+}
+
+/* Forms */
+input,
+select,
+textarea {
+    background: #ffffff !important;
+    color: var(--du-text) !important;
+    border-color: #d8c7b4 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.score-input:focus {
+    border-color: var(--du-gold) !important;
+    box-shadow: 0 0 0 3px rgba(195, 163, 67, 0.16) !important;
+}
+
+::placeholder {
+    color: #9a8c80 !important;
+}
+
+/* Tables */
+.data-table th,
+.history-table th {
+    background: var(--du-brown) !important;
+    color: #ffffff !important;
+}
+
+.data-table tr:hover,
+.history-table tr:hover,
+.notification-item:hover {
+    background: var(--du-surface-strong) !important;
+}
+
+.data-table td,
+.history-table td {
+    border-bottom-color: var(--du-border) !important;
+}
+
+/* Landing page */
+.hero {
+    background: var(--du-bg) !important;
+    color: var(--du-text) !important;
+}
+
+.hero::before {
+    display: none !important;
+}
+
+.hero-content h1,
+.hero-content p,
+.hero-stats .stat p,
+.hero-badge,
+.image-card h4,
+.image-card p,
+.stat-item span {
+    color: var(--du-text) !important;
+}
+
+.gradient-text,
+.hero-content .highlight,
+.stat h3,
+.final-grade-letter {
+    color: var(--du-gold) !important;
+}
+
+.partners {
+    background: var(--du-surface) !important;
+}
+
+.cta p {
+    color: var(--du-gold) !important;
+}
+
+/* Status messages keep their semantic colors. */
+.success-msg,
+.success,
+.badge-success,
+.badge-marked,
+.score-high {
+    color: #155724 !important;
+}
+
+.error-msg,
+.error,
+.score-low {
+    color: #721c24 !important;
+}
+
+.warning-msg,
+.badge-warning,
+.badge-unmarked,
+.score-medium {
+    color: #856404 !important;
+}
+
+@media (max-width: 768px) {
+    .nav-menu.active {
+        background: var(--du-brown) !important;
+    }
+}
+
+.page-loader {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.page-loader.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.page-loader .loader {
+    text-align: center;
+    color: #fff;
+}
+
+.page-loader .spinner {
+    width: 60px;
+    height: 60px;
+    border: 6px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--du-gold);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+.page-loader .loader p {
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

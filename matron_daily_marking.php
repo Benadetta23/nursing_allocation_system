@@ -481,6 +481,7 @@ if ($selected_site_id && $active_tab == 'history') {
             .history-table { font-size: 0.75rem; }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -692,5 +693,6 @@ if ($selected_site_id && $active_tab == 'history') {
         
         <?php endif; ?>
     </div>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

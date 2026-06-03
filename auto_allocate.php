@@ -569,6 +569,7 @@ foreach ($sites as $site) {
             .radio-group { flex-direction: column; gap: 10px; }
         }
     </style>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -585,7 +586,7 @@ foreach ($sites as $site) {
         <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Manage Students</a>
         <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab active">Auto Allocate</a>
-        <a href="?tab=assign" class="nav-tab">Assign Staff</a>
+        <a href="coordinator_Dashboard.php?tab=assign" class="nav-tab">Assign Staff</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
     </div>
     
@@ -718,5 +719,6 @@ foreach ($sites as $site) {
         
         toggleRoleMode();
     </script>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>

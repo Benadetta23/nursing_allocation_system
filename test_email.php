@@ -22,6 +22,7 @@ $message = "
     <p>Your email system is working correctly.</p>
     <p>This test email was sent from Daeyang University Nursing Department.</p>
     <p>Time: " . date('Y-m-d H:i:s') . "</p>
+    <script src="js/page-loader.js"></script>
 </body>
 </html>
 ";
