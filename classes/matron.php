@@ -210,5 +210,108 @@ class Matron {
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+    
+    // Get average daily performance for a student
+    public function getStudentDailyAverage($student_id, $site_id) {
+        $query = "SELECT 
+                    AVG(CASE WHEN punctuality IS NOT NULL THEN punctuality ELSE 0 END) as avg_punctuality,
+                    AVG(CASE WHEN performance IS NOT NULL THEN performance ELSE 0 END) as avg_performance,
+                    AVG(CASE WHEN behavior IS NOT NULL THEN behavior ELSE 0 END) as avg_behavior,
+                    COUNT(*) as total_days,
+                    SUM(CASE WHEN attendance = 'Present' THEN 1 ELSE 0 END) as days_present,
+                    SUM(CASE WHEN attendance = 'Absent' THEN 1 ELSE 0 END) as days_absent,
+                    SUM(CASE WHEN attendance = 'Late' THEN 1 ELSE 0 END) as days_late
+                  FROM daily_marking 
+                  WHERE student_id = :student_id AND site_id = :site_id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($result && $result['total_days'] > 0) {
+            $result['overall_average'] = round(
+                ($result['avg_punctuality'] + $result['avg_performance'] + $result['avg_behavior']) / 3, 
+                1
+            );
+        } else {
+            $result['overall_average'] = null;
+        }
+        
+        return $result;
+    }
+    
+    // Calculate aggregate of all daily marks for a student
+    public function getDailyMarksAggregate($student_id) {
+        $query = "SELECT AVG(
+                    (COALESCE(punctuality, 0) + COALESCE(performance, 0) + COALESCE(behavior, 0)) / 3
+                  ) as aggregate
+                  FROM daily_marking 
+                  WHERE student_id = :student_id AND is_finalized = 0";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return round($result['aggregate'] ?? 0, 2);
+    }
+    
+    // Submit final matron assessment which locks daily marks
+    public function submitFinalMatronAssessment($student_id) {
+        $aggregate = $this->getDailyMarksAggregate($student_id);
+        
+        $query = "UPDATE assessment 
+                  SET daily_marks_aggregate = :aggregate, 
+                      matron_final_submitted = NOW() 
+                  WHERE student_id = :student_id 
+                  AND assessor_id = :matron_id 
+                  AND assessor_type = 'matron'";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':aggregate', $aggregate);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->bindParam(':matron_id', $this->matron_id);
+        $result = $stmt->execute();
+        
+        $query2 = "UPDATE daily_marking 
+                   SET is_finalized = 1, finalized_at = NOW() 
+                   WHERE student_id = :student_id";
+        $stmt2 = $this->conn->prepare($query2);
+        $stmt2->bindParam(':student_id', $student_id);
+        $stmt2->execute();
+        
+        return $result;
+    }
+    
+    // Check if matron has already submitted final assessment
+    public function isMatronAssessmentFinalized($student_id) {
+        $query = "SELECT matron_final_submitted FROM assessment 
+                  WHERE student_id = :student_id 
+                  AND assessor_id = :matron_id 
+                  AND assessor_type = 'matron'";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->bindParam(':matron_id', $this->matron_id);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return !is_null($result['matron_final_submitted'] ?? null);
+    }
+    
+    // Get students ready for lecturer assessment (matron finalized)
+    public function getStudentsReadyForLecturer($site_id) {
+        $query = "SELECT DISTINCT s.student_id, s.name, s.student_number, s.cohort, s.program,
+                         a.daily_marks_aggregate, a.matron_final_submitted,
+                         al.role, al.start_date, al.end_date
+                  FROM allocation al 
+                  JOIN student s ON al.student_id = s.student_id
+                  JOIN assessment a ON s.student_id = a.student_id
+                  WHERE al.site_id = :site_id 
+                  AND al.status = 'active'
+                  AND a.matron_final_submitted IS NOT NULL
+                  AND a.lecturer_final_submitted IS NULL
+                  ORDER BY s.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 ?>

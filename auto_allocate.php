@@ -12,7 +12,26 @@ require_once 'classes/Notification.php';
 
 $coordinator = new Coordinator();
 $database = new Database();
-$conn = $database->getConnection();
+
+// Fix: Use the correct connection method from your Database class
+if (method_exists($database, 'getConnection')) {
+    $conn = $database->getConnection();
+} elseif (method_exists($database, 'connect')) {
+    $conn = $database->connect();
+} else {
+    // Fallback direct connection
+    $host = 'localhost';
+    $dbname = 'nursing_allocation';
+    $username = 'root';
+    $password = '';
+    
+    try {
+        $conn = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+}
 
 $message = '';
 $error = '';
@@ -28,6 +47,13 @@ function cleanDisplay($text) {
 // Get unallocated students
 $all_students = $coordinator->getStudents();
 $sites = $coordinator->getSites();
+
+// Get sites with their offered roles
+$site_roles = [];
+foreach ($sites as $site) {
+    $roles_offered = $site['roles_offered'] ?? '';
+    $site_roles[$site['site_id']] = array_map('trim', explode(',', $roles_offered));
+}
 
 // Get students with active allocations
 $allocated_students = [];
@@ -52,7 +78,8 @@ foreach ($sites as $site) {
         'name' => $site['name'],
         'capacity' => $site['max_students'],
         'current' => 0,
-        'available' => $site['max_students']
+        'available' => $site['max_students'],
+        'roles_offered' => $site_roles[$site['site_id']] ?? ['General Nursing']
     ];
     $total_available += $site['max_students'];
 }
@@ -68,7 +95,7 @@ foreach ($allocations as $alloc) {
 // Calculate total available slots
 $available_slots = array_sum(array_column($site_capacity, 'available'));
 
-// Role mapping based on year of study
+// Role mapping based on year of study (FULL Year 1-4)
 $role_by_year = [
     1 => 'General Nursing',
     2 => 'Midwifery',
@@ -76,11 +103,45 @@ $role_by_year = [
     4 => 'Preceptorship'
 ];
 
+// Function to get role for student based on year
+function getRoleForStudent($student_year, $role_mode, $default_role) {
+    global $role_by_year;
+    if ($role_mode == 'auto') {
+        return $role_by_year[$student_year] ?? 'General Nursing';
+    }
+    return $default_role;
+}
+
+// Function to check if a site offers a specific role
+function siteOffersRole($site, $role) {
+    $roles_offered = $site['roles_offered'] ?? [];
+    return in_array($role, $roles_offered);
+}
+
+// Function to log notification status
+function logNotification($conn, $student_id, $allocation_id, $recipient_email, $recipient_name, $status, $error_message = null) {
+    $stmt = $conn->prepare("
+        INSERT INTO notification_log (student_id, allocation_id, recipient_email, recipient_name, notification_type, status, error_message, sent_at) 
+        VALUES (?, ?, ?, ?, 'email', ?, ?, NOW())
+    ");
+    $stmt->execute([$student_id, $allocation_id, $recipient_email, $recipient_name, $status, $error_message]);
+}
+
+// Function to log allocation debug info
+function logAllocationDebug($conn, $run_id, $student_id, $site_id, $role, $status, $reason = null) {
+    $stmt = $conn->prepare("
+        INSERT INTO allocation_debug_log (run_id, student_id, site_id, role_assigned, status, reason) 
+        VALUES (?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([$run_id, $student_id, $site_id, $role, $status, $reason]);
+}
+
 // Handle auto allocation
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     $allocation_count = 0;
     $allocation_errors = [];
     $notified_students = [];
+    $notification_failures = [];
     
     $start_date = $_POST['start_date'];
     $end_date = $_POST['end_date'];
@@ -88,10 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     $default_role = $_POST['default_role'] ?? 'General Nursing';
     $send_notifications = isset($_POST['send_notifications']) ? true : false;
     
+    // Generate unique run ID for debugging
+    $run_id = uniqid('alloc_');
+    
     // Reset site load for this allocation run
     $current_site_load = $site_capacity;
     
-    // Sort sites by available capacity (most available first) for round-robin
+    // Sort sites by available capacity (most available first)
     $sorted_sites = $current_site_load;
     uasort($sorted_sites, function($a, $b) {
         return $b['available'] - $a['available'];
@@ -107,107 +171,152 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         $allocation_errors[] = "Warning: Not enough capacity! Need $students_to_allocate slots, only $total_available_capacity available.";
     }
     
-    // Distribute students evenly across sites using round-robin
-    $site_allocation_count = [];
-    foreach ($sorted_sites as $site_id => $site) {
-        $site_allocation_count[$site_id] = 0;
-    }
+    // Get list of sites that have available capacity
+    $available_site_ids = array_keys(array_filter($sorted_sites, function($site) {
+        return $site['available'] > 0;
+    }));
     
-    $site_index = 0;
-    $site_ids = array_keys($sorted_sites);
-    $site_count = count($site_ids);
+    // Track year distribution for reporting (FIXED: removed the syntax error)
+    $year_allocation_count = [1 => 0, 2 => 0, 3 => 0, 4 => 0];
+    
+    // Smart allocation with role-site matching
+    $failed_students = [];
     
     foreach ($unallocated_students as $student) {
         $allocated = false;
-        $attempts = 0;
+        $student_year = $student['year_of_study'] ?? 1;
+        $required_role = getRoleForStudent($student_year, $role_mode, $default_role);
         
-        // Try up to number of sites times to find a site with capacity
-        while ($attempts < $site_count && !$allocated) {
-            $site_id = $site_ids[$site_index % $site_count];
-            $site = $sorted_sites[$site_id];
-            
-            if ($site['available'] > 0 && $current_site_load[$site_id]['available'] > 0) {
-                // Determine role based on mode
-                if ($role_mode == 'auto') {
-                    $student_year = $student['year_of_study'] ?? 1;
-                    $assigned_role = $role_by_year[$student_year] ?? 'General Nursing';
-                } else {
-                    $assigned_role = $default_role;
+        // Track year distribution
+        if (isset($year_allocation_count[$student_year])) {
+            $year_allocation_count[$student_year]++;
+        }
+        
+        // First, try to find sites that offer this specific role AND have capacity
+        $eligible_sites = [];
+        foreach ($available_site_ids as $site_id) {
+            if ($current_site_load[$site_id]['available'] > 0 && siteOffersRole($current_site_load[$site_id], $required_role)) {
+                $eligible_sites[] = $site_id;
+            }
+        }
+        
+        // If no site offers this role, try to find ANY site with capacity (fallback)
+        if (empty($eligible_sites)) {
+            foreach ($available_site_ids as $site_id) {
+                if ($current_site_load[$site_id]['available'] > 0) {
+                    $eligible_sites[] = $site_id;
                 }
-                
+            }
+            if (!empty($eligible_sites)) {
+                $allocation_errors[] = "Note: Student {$student['name']} (Year $student_year) requires '$required_role' but no site offers it. Allocated to available site with default role.";
+                $required_role = $default_role;
+            }
+        }
+        
+        // Try to allocate to eligible sites
+        foreach ($eligible_sites as $site_id) {
+            if ($allocated) break;
+            
+            if ($current_site_load[$site_id]['available'] > 0) {
                 $result = $coordinator->createAllocation(
                     $student['student_id'],
                     $site_id,
                     $start_date,
                     $end_date,
-                    $assigned_role
+                    $required_role
                 );
                 
                 if ($result) {
                     $allocation_count++;
                     $current_site_load[$site_id]['current']++;
                     $current_site_load[$site_id]['available']--;
-                    $site_allocation_count[$site_id]++;
+                    $available_site_ids = array_keys(array_filter($current_site_load, function($site) {
+                        return $site['available'] > 0;
+                    }));
                     $allocated = true;
+                    
+                    // Log success
+                    logAllocationDebug($conn, $run_id, $student['student_id'], $site_id, $required_role, 'success', null);
                     
                     // Send notification if enabled
                     if ($send_notifications) {
-                        $studentQuery = "SELECT email, name FROM student WHERE student_id = :student_id";
-                        $studentStmt = $conn->prepare($studentQuery);
-                        $studentStmt->bindParam(':student_id', $student['student_id']);
-                        $studentStmt->execute();
-                        $studentData = $studentStmt->fetch(PDO::FETCH_ASSOC);
-                        
-                        if ($studentData) {
-                            $siteQuery = "SELECT name FROM clinical_site WHERE site_id = :site_id";
-                            $siteStmt = $conn->prepare($siteQuery);
-                            $siteStmt->bindParam(':site_id', $site_id);
-                            $siteStmt->execute();
-                            $siteData = $siteStmt->fetch(PDO::FETCH_ASSOC);
+                        try {
+                            $studentQuery = "SELECT email, name FROM student WHERE student_id = :student_id";
+                            $studentStmt = $conn->prepare($studentQuery);
+                            $studentStmt->bindParam(':student_id', $student['student_id']);
+                            $studentStmt->execute();
+                            $studentData = $studentStmt->fetch(PDO::FETCH_ASSOC);
                             
-                            $notify_result = $notification->sendAllocationNotification(
-                                $student['student_id'],
-                                $studentData['email'],
-                                $studentData['name'],
-                                $siteData['name'],
-                                $start_date,
-                                $end_date,
-                                $assigned_role,
-                                'both'
-                            );
-                            
-                            if ($notify_result['email_sent']) {
-                                $notified_students[] = $studentData['name'];
+                            if ($studentData) {
+                                $siteQuery = "SELECT name FROM clinical_site WHERE site_id = :site_id";
+                                $siteStmt = $conn->prepare($siteQuery);
+                                $siteStmt->bindParam(':site_id', $site_id);
+                                $siteStmt->execute();
+                                $siteData = $siteStmt->fetch(PDO::FETCH_ASSOC);
+                                
+                                $notify_result = $notification->sendAllocationNotification(
+                                    $student['student_id'],
+                                    $studentData['email'],
+                                    $studentData['name'],
+                                    $siteData['name'],
+                                    $start_date,
+                                    $end_date,
+                                    $required_role,
+                                    'both'
+                                );
+                                
+                                // Log notification result
+                                if ($notify_result['email_sent']) {
+                                    $notified_students[] = $studentData['name'];
+                                    logNotification($conn, $student['student_id'], $result, $studentData['email'], $studentData['name'], 'sent', null);
+                                } else {
+                                    $notification_failures[] = $studentData['name'];
+                                    $error_msg = $notify_result['email_error'] ?? 'Unknown error';
+                                    logNotification($conn, $student['student_id'], $result, $studentData['email'], $studentData['name'], 'failed', $error_msg);
+                                }
                             }
+                        } catch (Exception $e) {
+                            $notification_failures[] = $student['name'];
+                            logNotification($conn, $student['student_id'], $result, null, $student['name'], 'failed', $e->getMessage());
                         }
                     }
+                    break;
                 }
             }
-            $attempts++;
-            $site_index++;
         }
         
         if (!$allocated) {
-            $allocation_errors[] = "No available capacity for student: " . $student['name'] . " (" . $student['student_number'] . ")";
+            $failed_students[] = $student;
+            $error_reason = "No available site with capacity offering role: $required_role (Year: $student_year)";
+            $allocation_errors[] = "Failed to allocate: {$student['name']} ({$student['student_number']}) - Year $student_year needs '$required_role' - $error_reason";
+            logAllocationDebug($conn, $run_id, $student['student_id'], null, $required_role, 'failed', $error_reason);
         }
     }
     
-    // Build result message - SIMPLIFIED (no distribution details)
+    // Build result message
     if ($allocation_count > 0) {
         $message = "Auto-allocation completed! Successfully allocated: $allocation_count students.";
         
-        if ($send_notifications && count($notified_students) > 0) {
-            $message .= " Notifications sent to " . count($notified_students) . " students.";
+        // Add year breakdown
+        $message .= " (Year 1: {$year_allocation_count[1]}, Year 2: {$year_allocation_count[2]}, Year 3: {$year_allocation_count[3]}, Year 4: {$year_allocation_count[4]})";
+        
+        if ($send_notifications) {
+            if (count($notified_students) > 0) {
+                $message .= " Notifications sent to " . count($notified_students) . " students.";
+            }
+            if (count($notification_failures) > 0) {
+                $message .= " Failed to send notifications to " . count($notification_failures) . " students. Check notification_log table.";
+            }
         }
-        if (!empty($allocation_errors)) {
-            $message .= " " . count($allocation_errors) . " students could not be allocated due to capacity issues.";
+        if (count($failed_students) > 0) {
+            $message .= " " . count($failed_students) . " students could not be allocated due to capacity or role mismatch.";
         }
         
         // Refresh data
         header("Location: auto_allocate.php?success=" . urlencode($message));
         exit;
     } else {
-        $error = "No students were allocated. Please check site capacities and available students.";
+        $error = "No students were allocated. Please check site capacities, role offerings (especially for Year 4/Preceptorship), and available students.";
     }
 }
 
@@ -229,6 +338,15 @@ foreach ($all_students as $student) {
     }
 }
 
+// Count unallocated students by year for better reporting
+$unallocated_by_year = [1 => 0, 2 => 0, 3 => 0, 4 => 0];
+foreach ($unallocated_students as $student) {
+    $year = $student['year_of_study'] ?? 1;
+    if (isset($unallocated_by_year[$year])) {
+        $unallocated_by_year[$year]++;
+    }
+}
+
 $total_allocated = count($allocated_students);
 $total_capacity = array_sum(array_column($sites, 'max_students'));
 $available_slots = $total_capacity - $total_allocated;
@@ -242,11 +360,18 @@ foreach ($sites as $site) {
             $current++;
         }
     }
+    $roles_display = isset($site_roles[$site['site_id']]) ? implode(', ', $site_roles[$site['site_id']]) : 'All roles';
+    
+    // Check if site offers Preceptorship (Year 4)
+    $has_preceptorship = in_array('Preceptorship', $site_roles[$site['site_id']] ?? []);
+    $preceptorship_badge = $has_preceptorship ? ' ✅ Year 4 Ready' : '';
+    
     $site_stats[$site['site_id']] = [
         'name' => $site['name'],
         'capacity' => $site['max_students'],
         'current' => $current,
-        'available' => $site['max_students'] - $current
+        'available' => $site['max_students'] - $current,
+        'roles_offered' => $roles_display . $preceptorship_badge
     ];
 }
 ?>
@@ -351,7 +476,7 @@ foreach ($sites as $site) {
         }
         
         .container {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 30px 20px;
         }
@@ -400,7 +525,7 @@ foreach ($sites as $site) {
         
         .site-stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 15px;
             margin-bottom: 20px;
         }
@@ -422,6 +547,13 @@ foreach ($sites as $site) {
         .site-capacity {
             font-size: 0.8rem;
             color: #666;
+        }
+        
+        .site-roles {
+            font-size: 0.7rem;
+            color: #c3a343;
+            margin-top: 8px;
+            font-style: italic;
         }
         
         .capacity-bar {
@@ -560,6 +692,37 @@ foreach ($sites as $site) {
             border-left: 3px solid #c3a343;
         }
         
+        .warning-box {
+            background: #fff3cd;
+            color: #856404;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #ffc107;
+            font-size: 0.85rem;
+        }
+        
+        .year-stats {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .year-badge {
+            background: #e9ecef;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        
+        .year-badge.year4 {
+            background: #c3a343;
+            color: #4a2f1a;
+            font-weight: bold;
+        }
+        
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
@@ -598,9 +761,15 @@ foreach ($sites as $site) {
             <div class="error-msg"><?php echo cleanDisplay(htmlspecialchars($error)); ?></div>
         <?php endif; ?>
         
+        <!-- Role-Site Matching Info -->
+        <div class="warning-box">
+            <strong>🔧 Role-Site Matching Active:</strong> Students will only be allocated to sites that offer their required role.
+            <br><strong>Year 4 (Preceptorship):</strong> Sites marked with "✅ Year 4 Ready" can accept final year students.
+        </div>
+        
         <!-- Site Capacity Overview -->
         <div class="card">
-            <h2>Clinical Sites Capacity</h2>
+            <h2>Clinical Sites Capacity & Offered Roles</h2>
             <div class="site-stats">
                 <?php foreach ($site_stats as $site): ?>
                 <div class="site-card">
@@ -614,6 +783,9 @@ foreach ($sites as $site) {
                     <div class="site-capacity">
                         Available: <?php echo $site['available']; ?> slots
                     </div>
+                    <div class="site-roles">
+                        🏥 Offers: <?php echo cleanDisplay(htmlspecialchars($site['roles_offered'])); ?>
+                    </div>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -623,6 +795,15 @@ foreach ($sites as $site) {
             <div class="stat-box">
                 <div class="stat-number"><?php echo count($unallocated_students); ?></div>
                 <div class="stat-label">Pending Allocation</div>
+                <?php if (count($unallocated_students) > 0): ?>
+                <div class="year-stats">
+                    <?php foreach ($unallocated_by_year as $year => $count): ?>
+                        <?php if ($count > 0): ?>
+                        <span class="year-badge <?php echo $year == 4 ? 'year4' : ''; ?>">Year <?php echo $year; ?>: <?php echo $count; ?></span>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
             </div>
             <div class="stat-box">
                 <div class="stat-number"><?php echo $available_slots; ?></div>
@@ -678,16 +859,19 @@ foreach ($sites as $site) {
                     <div id="autoRoleInfo" class="info-box">
                         <p><strong>Auto Role Mapping (Based on Year of Study):</strong></p>
                         <ul>
-                            <li>Year 1 → General Nursing (Basic Care)</li>
-                            <li>Year 2 → Midwifery (Specialized Care)</li>
-                            <li>Year 3 → Critical Care (Complex Care)</li>
-                            <li>Year 4 → Preceptorship (Leadership)</li>
+                            <li>Year 1 → <strong>General Nursing</strong> (Basic Care)</li>
+                            <li>Year 2 → <strong>Midwifery</strong> (Specialized Care)</li>
+                            <li>Year 3 → <strong>Critical Care</strong> (Complex Care)</li>
+                            <li>Year 4 → <strong>Preceptorship</strong> (Leadership & Teaching)</li>
                         </ul>
+                        <p style="margin-top: 10px; font-size: 0.8rem; color: #c3a343;">
+                            <strong>Note:</strong> Year 4 (Preceptorship) students will only be allocated to sites marked "Year 4 Ready" above.
+                        </p>
                     </div>
                     
                     <div class="checkbox-group">
                         <input type="checkbox" name="send_notifications" id="send_notifications" checked>
-                        <label for="send_notifications">Send notifications to students</label>
+                        <label for="send_notifications">Send notifications to students (logged in notification_log table)</label>
                     </div>
                     
                     <button type="submit" name="auto_allocate" class="btn-primary">Run Auto Allocation</button>
@@ -718,6 +902,23 @@ foreach ($sites as $site) {
         });
         
         toggleRoleMode();
+        
+        // Set default dates
+        const startDateInput = document.querySelector('input[name="start_date"]');
+        const endDateInput = document.querySelector('input[name="end_date"]');
+        
+        if (startDateInput && !startDateInput.value) {
+            const nextMonday = new Date();
+            const daysUntilMonday = (1 - nextMonday.getDay() + 7) % 7 || 7;
+            nextMonday.setDate(nextMonday.getDate() + daysUntilMonday);
+            startDateInput.value = nextMonday.toISOString().split('T')[0];
+        }
+        
+        if (endDateInput && !endDateInput.value && startDateInput.value) {
+            const endDate = new Date(startDateInput.value);
+            endDate.setDate(endDate.getDate() + 84);
+            endDateInput.value = endDate.toISOString().split('T')[0];
+        }
     </script>
     <script src="js/page-loader.js"></script>
 </body>

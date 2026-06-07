@@ -70,6 +70,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['mark_all_students'])) 
     $message = "Daily marks saved! Success: $success_count, Failed: $fail_count";
 }
 
+// Handle final matron assessment submission
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['finalize_matron_assessment'])) {
+    $student_id = $_POST['student_id'];
+    $aggregate = $matron->getDailyMarksAggregate($student_id);
+    
+    if ($aggregate > 0) {
+        if ($matron->submitFinalMatronAssessment($student_id)) {
+            $message = "Final assessment submitted successfully! Lecturer can now assess this student. Aggregate score: " . $aggregate . "%";
+        } else {
+            $error = "Failed to submit final assessment.";
+        }
+    } else {
+        $error = "Cannot submit final assessment. No daily marks recorded for this student.";
+    }
+}
+
 // Get students for selected site
 $students_at_site = [];
 $todays_marks = [];
@@ -214,6 +230,15 @@ if ($selected_site_id && $active_tab == 'history') {
             border-left: 4px solid #dc3545;
         }
         
+        .warning-msg {
+            background: #fff3cd;
+            color: #856404;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
+        }
+        
         .card {
             background: white;
             border-radius: 12px;
@@ -289,6 +314,29 @@ if ($selected_site_id && $active_tab == 'history') {
             transition: 0.3s;
         }
         
+        .btn-success {
+            background: #28a745;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #856404;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
         .students-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
@@ -306,6 +354,12 @@ if ($selected_site_id && $active_tab == 'history') {
         .student-mark-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .student-mark-card.finalized {
+            background: #e8f5e9;
+            border-left-color: #28a745;
+            opacity: 0.9;
         }
         
         .student-header {
@@ -340,6 +394,11 @@ if ($selected_site_id && $active_tab == 'history') {
         .status-unmarked {
             background: #fff3cd;
             color: #856404;
+        }
+        
+        .status-finalized {
+            background: #28a745;
+            color: white;
         }
         
         .score-row {
@@ -407,6 +466,11 @@ if ($selected_site_id && $active_tab == 'history') {
             background: #654321;
         }
         
+        .btn-save-student:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        
         .btn-mark-all {
             background: #28a745;
             color: white;
@@ -416,6 +480,26 @@ if ($selected_site_id && $active_tab == 'history') {
             cursor: pointer;
             font-weight: 600;
             margin-bottom: 20px;
+        }
+        
+        .btn-mark-all:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        
+        .final-assessment-box {
+            background: #e8f5e9;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 25px;
+            border-left: 4px solid #28a745;
+        }
+        
+        .aggregate-score {
+            font-size: 28px;
+            font-weight: bold;
+            color: #28a745;
+            margin: 10px 0;
         }
         
         .history-table {
@@ -559,18 +643,23 @@ if ($selected_site_id && $active_tab == 'history') {
                     <div class="students-grid">
                         <?php foreach ($students_at_site as $student): 
                             $existing_mark = $marks_lookup[$student['student_id']] ?? null;
+                            $is_finalized = $matron->isMatronAssessmentFinalized($student['student_id']);
+                            $aggregate_score = $matron->getDailyMarksAggregate($student['student_id']);
                         ?>
-                        <div class="student-mark-card">
+                        <div class="student-mark-card <?php echo $is_finalized ? 'finalized' : ''; ?>">
                             <div class="student-header">
                                 <h4><?php echo htmlspecialchars($student['name']); ?></h4>
                                 <p><?php echo htmlspecialchars($student['student_number']); ?> | Cohort: <?php echo $student['cohort']; ?> | Role: <?php echo $student['role']; ?></p>
-                                <?php if ($existing_mark): ?>
-                                    <span class="mark-status status-marked">✓ Marked Today</span>
+                                <?php if ($is_finalized): ?>
+                                    <span class="mark-status status-finalized">Finalized - Lecturer Ready</span>
+                                <?php elseif ($existing_mark): ?>
+                                    <span class="mark-status status-marked">Marked Today</span>
                                 <?php else: ?>
-                                    <span class="mark-status status-unmarked">⏳ Pending</span>
+                                    <span class="mark-status status-unmarked">Pending</span>
                                 <?php endif; ?>
                             </div>
                             
+                            <?php if (!$is_finalized): ?>
                             <div class="score-row">
                                 <div class="score-item">
                                     <label>Attendance</label>
@@ -615,10 +704,59 @@ if ($selected_site_id && $active_tab == 'history') {
                             </div>
                             
                             <button type="submit" name="save_daily_marking" value="1" class="btn-save-student">Save for <?php echo htmlspecialchars($student['name']); ?></button>
+                            <?php else: ?>
+                            <div class="final-assessment-box" style="margin-top: 10px;">
+                                <p><strong>Final Assessment Submitted</strong></p>
+                                <p>Aggregate Score: <span class="aggregate-score"><?php echo $aggregate_score; ?>%</span></p>
+                                <p>This student is now ready for lecturer assessment.</p>
+                            </div>
+                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     </div>
                 </form>
+                
+                <!-- Final Assessment Section for All Students -->
+                <?php
+                $all_students_finalized = true;
+                $any_student_has_marks = false;
+                foreach ($students_at_site as $student):
+                    $is_finalized = $matron->isMatronAssessmentFinalized($student['student_id']);
+                    $aggregate = $matron->getDailyMarksAggregate($student['student_id']);
+                    if (!$is_finalized) {
+                        $all_students_finalized = false;
+                    }
+                    if ($aggregate > 0) {
+                        $any_student_has_marks = true;
+                    }
+                endforeach;
+                ?>
+                
+                <?php if (!$all_students_finalized && $any_student_has_marks): ?>
+                <div class="final-assessment-box">
+                    <h3>Submit Final Assessments</h3>
+                    <p>Once you submit a final assessment for a student, you cannot add more daily marks for them. The aggregate score will be used for final grading.</p>
+                    <div class="students-grid" style="margin-top: 15px;">
+                        <?php foreach ($students_at_site as $student):
+                            $is_finalized = $matron->isMatronAssessmentFinalized($student['student_id']);
+                            $aggregate = $matron->getDailyMarksAggregate($student['student_id']);
+                            if (!$is_finalized && $aggregate > 0):
+                        ?>
+                        <div class="student-mark-card" style="background: #fff3cd;">
+                            <div class="student-header">
+                                <h4><?php echo htmlspecialchars($student['name']); ?></h4>
+                                <p><?php echo htmlspecialchars($student['student_number']); ?></p>
+                            </div>
+                            <p>Current Aggregate: <strong><?php echo $aggregate; ?>%</strong></p>
+                            <form method="POST" onsubmit="return confirm('Finalize assessment for <?php echo addslashes($student['name']); ?>? This will lock daily marks and allow lecturer assessment.')">
+                                <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
+                                <button type="submit" name="finalize_matron_assessment" class="btn-success" style="width: 100%;">Submit Final Assessment (<?php echo $aggregate; ?>%)</button>
+                            </form>
+                        </div>
+                        <?php endif; endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
                 
             <?php elseif ($selected_site_id): ?>
                 <p class="no-data">No students allocated to this clinical site.</p>
@@ -661,6 +799,7 @@ if ($selected_site_id && $active_tab == 'history') {
                                 <th>Punctuality</th>
                                 <th>Performance</th>
                                 <th>Behavior</th>
+                                <th>Finalized</th>
                                 <th>Comments</th>
                             </tr>
                         </thead>
@@ -674,10 +813,11 @@ if ($selected_site_id && $active_tab == 'history') {
                                     <span class="attendance-badge attendance-<?php echo strtolower($mark['attendance']); ?>">
                                         <?php echo $mark['attendance']; ?>
                                     </span>
-                                </td>
+                                 </td>
                                 <td><?php echo $mark['punctuality']; ?>/5</td>
                                 <td><?php echo $mark['performance']; ?>/5</td>
                                 <td><?php echo $mark['behavior']; ?>/5</td>
+                                <td><?php echo !empty($mark['is_finalized']) ? 'Yes' : 'No'; ?></td>
                                 <td><?php echo htmlspecialchars(substr($mark['comments'] ?? '', 0, 50)); ?></td>
                             </tr>
                             <?php endforeach; ?>

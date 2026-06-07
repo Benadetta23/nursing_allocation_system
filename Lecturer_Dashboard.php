@@ -62,18 +62,29 @@ if (isset($_GET['mark_all_read'])) {
 $studentsAtSite = [];
 $pendingCount = 0;
 $completedCount = 0;
+$readyForAssessmentCount = 0;
 $dailyMarkedStudents = [];
 
 if ($selected_site_id) {
     $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
+    $readyForAssessment = $lecturer->getStudentsReadyForAssessment($selected_site_id);
     $dailyMarkedStudents = $lecturer->getStudentsWithDailyMarks($selected_site_id);
+    
+    // Create lookup for ready students
+    $readyLookup = [];
+    foreach ($readyForAssessment as $ready) {
+        $readyLookup[$ready['student_id']] = $ready;
+    }
     
     // Calculate pending and completed counts
     foreach ($studentsAtSite as $student) {
         $matronDone = ($student['matron_assessed'] > 0);
+        $matronFinalized = !is_null($student['matron_finalized'] ?? null);
         $lecturerDone = ($student['already_assessed'] > 0);
         
-        if ($matronDone && !$lecturerDone) {
+        if ($matronFinalized && !$lecturerDone) {
+            $readyForAssessmentCount++;
+        } elseif ($matronDone && !$lecturerDone) {
             $pendingCount++;
         } elseif ($lecturerDone) {
             $completedCount++;
@@ -93,18 +104,37 @@ if ($selected_site_id) {
             $student['avg_performance'] = $dailyMarkedMap[$student['student_id']]['avg_performance'];
             $student['last_marked_date'] = $dailyMarkedMap[$student['student_id']]['last_marked_date'];
         }
+        $student['matron_finalized'] = $student['matron_finalized'] ?? null;
+        $student['ready_for_assessment'] = isset($readyLookup[$student['student_id']]);
     }
 }
 
 // Handle assessment submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) {
-    if ($lecturer->saveAssessment($_POST['student_id'], $_POST['site_id'], $_POST['punctuality'], $_POST['dressing'], $_POST['communication'], $_POST['comments'])) {
-        $message = "Final Assessment saved successfully";
+    $result = $lecturer->saveAssessment(
+        $_POST['student_id'], 
+        $_POST['site_id'], 
+        $_POST['punctuality'], 
+        $_POST['dressing'], 
+        $_POST['communication'], 
+        $_POST['comments']
+    );
+    
+    if ($result['success']) {
+        $message = "Final Assessment saved successfully. Final Grade: " . $result['final_grade'] . "% (" . $result['status'] . ")";
         if ($selected_site_id) {
             $studentsAtSite = $lecturer->getStudentsBySite($selected_site_id);
+            $readyForAssessment = $lecturer->getStudentsReadyForAssessment($selected_site_id);
+            $readyLookup = [];
+            foreach ($readyForAssessment as $ready) {
+                $readyLookup[$ready['student_id']] = $ready;
+            }
+            foreach ($studentsAtSite as &$student) {
+                $student['ready_for_assessment'] = isset($readyLookup[$student['student_id']]);
+            }
         }
     } else {
-        $error = "Failed to save assessment";
+        $error = $result['error'] ?? "Failed to save assessment. Matron assessment must be completed first.";
     }
 }
 
@@ -528,6 +558,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             display: inline-block;
         }
         
+        .badge-primary {
+            background: #c3a343;
+            color: #4a2f1a;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            display: inline-block;
+            font-weight: bold;
+        }
+        
         .btn-primary {
             background: #4a2f1a;
             color: white;
@@ -598,7 +638,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             background: white;
             border-radius: 12px;
             width: 90%;
-            max-width: 550px;
+            max-width: 650px;
             padding: 25px;
             border-top: 5px solid #c3a343;
         }
@@ -633,6 +673,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-left: 4px solid #c3a343;
         }
         
+        .student-info-card p {
+            margin: 5px 0;
+        }
+        
+        .daily-marks-preview {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #28a745;
+        }
+        
+        .daily-marks-preview h4 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        
+        .daily-marks-table {
+            width: 100%;
+            font-size: 0.75rem;
+            border-collapse: collapse;
+        }
+        
+        .daily-marks-table th,
+        .daily-marks-table td {
+            padding: 6px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .matron-score {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #28a745;
+            margin-top: 10px;
+        }
+        
         .score-row {
             display: flex;
             gap: 15px;
@@ -657,6 +734,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border: 2px solid #e0e0e0;
             border-radius: 6px;
             text-align: center;
+        }
+        
+        .grade-preview {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .grade-preview span {
+            font-weight: bold;
+            color: #1565c0;
         }
         
         .modal-buttons {
@@ -734,6 +824,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             border-radius: 6px;
             margin-bottom: 20px;
             border-left: 4px solid #dc3545;
+        }
+        
+        .warning-msg {
+            background: #fff3cd;
+            color: #856404;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
         }
         
         @media (max-width: 768px) {
@@ -860,8 +959,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                             <div class="stat-label">Total Students</div>
                         </div>
                         <div class="stat-card">
+                            <div class="stat-number" style="color: #28a745;"><?php echo $readyForAssessmentCount; ?></div>
+                            <div class="stat-label">Ready for Assessment</div>
+                        </div>
+                        <div class="stat-card">
                             <div class="stat-number"><?php echo $pendingCount; ?></div>
-                            <div class="stat-label">Pending Assessment</div>
+                            <div class="stat-label">Awaiting Matron Final</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-number"><?php echo $completedCount; ?></div>
@@ -878,18 +981,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                 <p>Role: <?php echo htmlspecialchars($student['role']); ?></p>
                                 <?php
                                 $matronDone = ($student['matron_assessed'] > 0);
+                                $matronFinalized = !is_null($student['matron_finalized'] ?? null);
                                 $lecturerDone = ($student['already_assessed'] > 0);
                                 
-                                if (!$matronDone):
+                                if ($lecturerDone):
                                 ?>
-                                    <span class="badge-secondary">Awaiting Matron Initial Assessment</span>
-                                    <button class="btn-secondary" disabled>Not Available</button>
-                                <?php elseif ($matronDone && !$lecturerDone): ?>
-                                    <span class="badge-info">Final Assessment Pending</span>
+                                    <span class="badge-success">Final Assessment Complete</span>
+                                    <button class="btn-secondary assess-btn" 
+                                        data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
+                                        data-siteid="<?php echo $selected_site_id; ?>"
+                                        data-viewonly="1">
+                                        View Assessment
+                                    </button>
+                                <?php elseif ($student['ready_for_assessment']): ?>
+                                    <span class="badge-primary">Ready for Assessment</span>
+                                    <span class="badge-success" style="margin-top: 5px;">Matron Finalized</span>
                                     <?php if (isset($student['daily_mark_count']) && $student['daily_mark_count'] > 0): ?>
-                                        <span class="badge-success" style="margin-top: 5px;">Daily Marks: <?php echo $student['daily_mark_count']; ?> day(s)</span>
                                         <p style="font-size: 0.7rem; color: #28a745; margin-top: 5px;">
-                                            Avg Performance: <?php echo number_format($student['avg_performance'], 1); ?>/5
+                                            Daily Marks: <?php echo $student['daily_mark_count']; ?> days
                                         </p>
                                     <?php endif; ?>
                                     <button class="btn-primary assess-btn" 
@@ -897,13 +1006,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                         data-siteid="<?php echo $selected_site_id; ?>">
                                         Start Final Assessment
                                     </button>
-                                <?php else: ?>
-                                    <span class="badge-success">Final Assessment Complete</span>
-                                    <button class="btn-secondary assess-btn" 
+                                <?php elseif ($matronFinalized && !$lecturerDone): ?>
+                                    <span class="badge-primary">Ready for Assessment</span>
+                                    <button class="btn-primary assess-btn" 
                                         data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
                                         data-siteid="<?php echo $selected_site_id; ?>">
-                                        View Assessment
+                                        Start Final Assessment
                                     </button>
+                                <?php elseif ($matronDone && !$lecturerDone): ?>
+                                    <span class="badge-warning">Awaiting Matron Finalization</span>
+                                    <button class="btn-secondary" disabled>Matron Assessment in Progress</button>
+                                <?php elseif (!$matronDone): ?>
+                                    <span class="badge-secondary">Awaiting Matron Initial Assessment</span>
+                                    <button class="btn-secondary" disabled>Not Available</button>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
@@ -932,9 +1047,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                 <th>Date</th>
                                 <th>Student</th>
                                 <th>Site</th>
-                                <th>Punctuality</th>
-                                <th>Dressing</th>
-                                <th>Communication</th>
+                                <th>Matron Score</th>
+                                <th>Final Grade</th>
+                                <th>Status</th>
                                 <th>Comments</th>
                             </tr>
                         </thead>
@@ -944,11 +1059,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                 <td><?php echo date('M d, Y', strtotime($h['assessment_date'])); ?></td>
                                 <td><?php echo htmlspecialchars($h['student_name']); ?> (<?php echo htmlspecialchars($h['student_number']); ?>)</td>
                                 <td><?php echo htmlspecialchars($h['site_name']); ?></td>
-                                <td><?php echo $h['punctuality_score']; ?>/5</td>
-                                <td><?php echo $h['dressing_score']; ?>/5</td>
-                                <td><?php echo $h['communication_score']; ?>/5\n</td>
-                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...\n</td>
-                            </tr>
+                                <td><?php echo $h['daily_marks_aggregate'] ?? '-'; ?>%</td>
+                                <td><strong><?php echo $h['final_grade'] ?? '-'; ?>%</strong></td>
+                                <td class="<?php echo ($h['pass_fail_status'] ?? 'Pending') == 'Pass' ? 'text-success' : 'text-danger'; ?>">
+                                    <?php echo $h['pass_fail_status'] ?? 'Pending'; ?>
+                                 </td>
+                                <td><?php echo htmlspecialchars(substr($h['comments'], 0, 50)); ?>...</td>
+                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
@@ -1012,6 +1129,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         <p><strong>Cohort:</strong> <span id="studentCohort"></span></p>
                     </div>
                     
+                    <div id="dailyMarksPreview" class="daily-marks-preview" style="display: none;">
+                        <h4>Matron's Daily Marks Summary</h4>
+                        <div id="dailyMarksContent">Loading...</div>
+                        <div id="matronAggregate" class="matron-score"></div>
+                    </div>
+                    
                     <div class="score-row">
                         <div class="score-item">
                             <label>Punctuality (1-5)</label>
@@ -1025,6 +1148,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                             <label>Communication (1-5)</label>
                             <input type="number" id="communication" name="communication" min="1" max="5" required>
                         </div>
+                    </div>
+                    
+                    <div id="gradePreview" class="grade-preview">
+                        Final Grade Calculation: (Matron Score × 60%) + (Lecturer Score × 40%) = <span id="previewGrade">-</span>%
                     </div>
                     
                     <div class="form-group">
@@ -1066,13 +1193,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             });
         }
         
-        function openAssessmentModal(student, siteId) {
+        function openAssessmentModal(student, siteId, viewOnly = false) {
             document.getElementById('assessStudentId').value = student.student_id;
             document.getElementById('assessSiteId').value = siteId;
             document.getElementById('studentName').textContent = student.name;
             document.getElementById('studentNumber').textContent = student.student_number;
             document.getElementById('studentRole').textContent = student.role || 'General Nursing';
             document.getElementById('studentCohort').textContent = student.cohort || '2024';
+            
+            // Load daily marks preview
+            loadDailyMarksPreview(student.student_id, siteId);
+            
+            // If view only (already assessed), disable inputs
+            if (viewOnly) {
+                document.getElementById('punctuality').disabled = true;
+                document.getElementById('dressing').disabled = true;
+                document.getElementById('communication').disabled = true;
+                document.getElementById('comments').disabled = true;
+                document.querySelector('button[name="submit_assessment"]').style.display = 'none';
+            } else {
+                document.getElementById('punctuality').disabled = false;
+                document.getElementById('dressing').disabled = false;
+                document.getElementById('communication').disabled = false;
+                document.getElementById('comments').disabled = false;
+                document.querySelector('button[name="submit_assessment"]').style.display = 'block';
+            }
             
             // If editing existing assessment, populate fields
             if (student.already_assessed > 0) {
@@ -1093,7 +1238,65 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                 document.getElementById('comments').value = '';
             }
             
+            // Add input listeners for grade preview
+            const inputs = ['punctuality', 'dressing', 'communication'];
+            inputs.forEach(id => {
+                document.getElementById(id).addEventListener('input', updateGradePreview);
+            });
+            
             document.getElementById('assessmentModal').style.display = 'flex';
+        }
+        
+        function loadDailyMarksPreview(studentId, siteId) {
+            const previewDiv = document.getElementById('dailyMarksPreview');
+            const contentDiv = document.getElementById('dailyMarksContent');
+            const aggregateDiv = document.getElementById('matronAggregate');
+            
+            fetch('ajax/get_daily_marks_preview.php?student_id=' + studentId + '&site_id=' + siteId)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.has_marks) {
+                        previewDiv.style.display = 'block';
+                        let html = '<table class="daily-marks-table">';
+                        html += '<tr><th>Date</th><th>Punctuality</th><th>Performance</th><th>Behavior</th></tr>';
+                        data.marks.forEach(mark => {
+                            html += '<tr>';
+                            html += '<td>' + mark.marking_date + '</td>';
+                            html += '<td>' + mark.punctuality + '/5</td>';
+                            html += '<td>' + mark.performance + '/5</td>';
+                            html += '<td>' + mark.behavior + '/5</td>';
+                            html += '</tr>';
+                        });
+                        html += '</table>';
+                        contentDiv.innerHTML = html;
+                        aggregateDiv.innerHTML = 'Matron Aggregate Score: <strong>' + data.aggregate + '%</strong> (Weight: 60%)';
+                        window.matronAggregate = data.aggregate;
+                    } else {
+                        previewDiv.style.display = 'none';
+                        window.matronAggregate = 0;
+                    }
+                    updateGradePreview();
+                })
+                .catch(error => {
+                    previewDiv.style.display = 'none';
+                    window.matronAggregate = 0;
+                });
+        }
+        
+        function updateGradePreview() {
+            const punctuality = parseFloat(document.getElementById('punctuality').value) || 0;
+            const dressing = parseFloat(document.getElementById('dressing').value) || 0;
+            const communication = parseFloat(document.getElementById('communication').value) || 0;
+            
+            let lecturerScore = (punctuality + dressing + communication) / 3;
+            if (lecturerScore <= 5) {
+                lecturerScore = (lecturerScore / 5) * 100;
+            }
+            
+            const matronScore = window.matronAggregate || 0;
+            const finalGrade = (matronScore * 0.6) + (lecturerScore * 0.4);
+            
+            document.getElementById('previewGrade').textContent = finalGrade.toFixed(1);
         }
         
         function closeModal() {
@@ -1106,6 +1309,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                 closeModal();
             }
         }
+        
+        // Attach assess-btn click handlers
+        document.querySelectorAll('.assess-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const student = JSON.parse(this.dataset.student);
+                const siteId = this.dataset.siteid;
+                const viewOnly = this.dataset.viewonly === '1';
+                openAssessmentModal(student, siteId, viewOnly);
+            });
+        });
     </script>
     <script src="js/page-loader.js"></script>
 </body>
