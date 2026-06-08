@@ -140,34 +140,40 @@ class Lecturer {
         // Get matron aggregate score
         $matron_aggregate = $matronStatus['aggregate'];
         
-        // Get daily averages for weighting
-        $dailyAvgQuery = "SELECT 
-                            AVG(punctuality) as avg_punctuality, 
-                            AVG(performance) as avg_performance, 
-                            AVG(behavior) as avg_behavior 
-                          FROM daily_marking 
-                          WHERE student_id = :student_id AND site_id = :site_id AND is_finalized = 1";
-        $dailyAvgStmt = $this->conn->prepare($dailyAvgQuery);
-        $dailyAvgStmt->bindParam(':student_id', $student_id);
-        $dailyAvgStmt->bindParam(':site_id', $site_id);
-        $dailyAvgStmt->execute();
-        $dailyAvg = $dailyAvgStmt->fetch(PDO::FETCH_ASSOC);
-        
-        // Convert 1-5 scale to percentage for daily marks
-        $daily_score_percent = 0;
-        if ($dailyAvg && $dailyAvg['avg_punctuality'] > 0) {
-            $daily_score_raw = ($dailyAvg['avg_punctuality'] + $dailyAvg['avg_performance'] + $dailyAvg['avg_behavior']) / 3;
-            $daily_score_percent = round(($daily_score_raw / 5) * 100, 1);
+        // FIX: Validate scores - must be between 1 and 5
+        $score_valid = ($punctuality >= 1 && $punctuality <= 5) &&
+                       ($dressing >= 1 && $dressing <= 5) &&
+                       ($communication >= 1 && $communication <= 5);
+        if (!$score_valid) {
+            return ['success' => false, 'error' => 'All scores must be between 1 and 5.'];
         }
         
-        // Lecturer score is already 0-100 scale? If 1-5 scale, convert
+        // FIX: Prevent re-submission if lecturer already finalized this student
+        $checkSubmitted = "SELECT assess_id, lecturer_final_submitted, assessment_date 
+                           FROM assessment 
+                           WHERE student_id = :student_id 
+                           AND assessor_id = :lecturer_id 
+                           AND site_id = :site_id 
+                           AND assessor_type = 'lecturer' 
+                           AND lecturer_final_submitted IS NOT NULL";
+        $checkSubStmt = $this->conn->prepare($checkSubmitted);
+        $checkSubStmt->bindParam(':student_id', $student_id);
+        $checkSubStmt->bindParam(':lecturer_id', $this->lecturer_id);
+        $checkSubStmt->bindParam(':site_id', $site_id);
+        $checkSubStmt->execute();
+        $existingFinalized = $checkSubStmt->fetch(PDO::FETCH_ASSOC);
+        if ($existingFinalized) {
+            return [
+                'success' => false, 
+                'error' => 'This student has already been assessed on ' . $existingFinalized['assessment_date'] . '. Contact coordinator to override.'
+            ];
+        }
+        
+        // FIX: Remove dead code - no need to recalculate daily averages here
+        // The matron aggregate already includes daily marks data
+        // Lecturer score: always convert from 1-5 scale to percentage
         $lecturer_score_raw = ($punctuality + $dressing + $communication) / 3;
-        // If values are 1-5, convert to percentage
-        if ($punctuality <= 5 && $dressing <= 5 && $communication <= 5) {
-            $lecturer_score_percent = round(($lecturer_score_raw / 5) * 100, 1);
-        } else {
-            $lecturer_score_percent = $lecturer_score_raw;
-        }
+        $lecturer_score_percent = round(($lecturer_score_raw / 5) * 100, 1);
         
         // Weighted final grade (60% matron aggregate, 40% lecturer score)
         $final_grade = round(($matron_aggregate * 0.6) + ($lecturer_score_percent * 0.4), 1);
@@ -182,7 +188,7 @@ class Lecturer {
         $thresholdResult = $thresholdStmt->fetch(PDO::FETCH_ASSOC);
         $pass_fail_status = $thresholdResult['status'] ?? 'Fail';
         
-        // Check if final assessment already exists from this lecturer
+        // Check if partial assessment already exists (without final submission)
         $checkQuery = "SELECT assess_id FROM assessment 
                        WHERE student_id = :student_id 
                        AND assessor_id = :lecturer_id 
@@ -195,7 +201,7 @@ class Lecturer {
         $checkStmt->execute();
         
         if ($checkStmt->rowCount() > 0) {
-            // Update existing final assessment
+            // Update existing draft assessment
             $query = "UPDATE assessment 
                       SET punctuality_score = :punctuality, 
                           dressing_score = :dressing, 
@@ -250,7 +256,8 @@ class Lecturer {
                 'final_grade' => $final_grade, 
                 'status' => $pass_fail_status,
                 'matron_score' => $matron_aggregate,
-                'lecturer_score' => $lecturer_score_percent
+                'lecturer_score' => $lecturer_score_percent,
+                'assessment_date' => date('Y-m-d')
             ];
         }
         

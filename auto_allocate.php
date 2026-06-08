@@ -13,18 +13,15 @@ require_once 'classes/Notification.php';
 $coordinator = new Coordinator();
 $database = new Database();
 
-// Fix: Use the correct connection method from your Database class
 if (method_exists($database, 'getConnection')) {
     $conn = $database->getConnection();
 } elseif (method_exists($database, 'connect')) {
     $conn = $database->connect();
 } else {
-    // Fallback direct connection
     $host = 'localhost';
     $dbname = 'nursing_allocation';
     $username = 'root';
     $password = '';
-    
     try {
         $conn = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -34,35 +31,22 @@ if (method_exists($database, 'getConnection')) {
 }
 
 $message = '';
-$error = '';
-$allocation_result = [];
 
-// Helper function to clean display
 function cleanDisplay($text) {
     if ($text === null) return '';
     $text = str_replace(['(', ')', '\\'], '', $text);
     return trim($text);
 }
 
-// Get unallocated students
 $all_students = $coordinator->getStudents();
 $sites = $coordinator->getSites();
 
-// Get sites with their offered roles
-$site_roles = [];
-foreach ($sites as $site) {
-    $roles_offered = $site['roles_offered'] ?? '';
-    $site_roles[$site['site_id']] = array_map('trim', explode(',', $roles_offered));
-}
-
-// Get students with active allocations
 $allocated_students = [];
 $allocations = $coordinator->getAllocationsWithDaysRemaining();
 foreach ($allocations as $alloc) {
     $allocated_students[] = $alloc['student_id'];
 }
 
-// Get unallocated students with year info
 $unallocated_students = [];
 foreach ($all_students as $student) {
     if (!in_array($student['student_id'], $allocated_students)) {
@@ -70,32 +54,39 @@ foreach ($all_students as $student) {
     }
 }
 
-// Calculate total available capacity per site
-$site_capacity = [];
-$total_available = 0;
-foreach ($sites as $site) {
-    $site_capacity[$site['site_id']] = [
-        'name' => $site['name'],
-        'capacity' => $site['max_students'],
-        'current' => 0,
-        'available' => $site['max_students'],
-        'roles_offered' => $site_roles[$site['site_id']] ?? ['General Nursing']
-    ];
-    $total_available += $site['max_students'];
-}
+$total_allocated = count($allocated_students);
+$total_capacity = array_sum(array_column($sites, 'max_students'));
+$available_slots = $total_capacity - $total_allocated;
 
-// Count current allocations per site
-foreach ($allocations as $alloc) {
-    if (isset($site_capacity[$alloc['site_id']])) {
-        $site_capacity[$alloc['site_id']]['current']++;
-        $site_capacity[$alloc['site_id']]['available'] = $site_capacity[$alloc['site_id']]['capacity'] - $site_capacity[$alloc['site_id']]['current'];
+$unallocated_by_year = [1 => 0, 2 => 0, 3 => 0, 4 => 0];
+foreach ($unallocated_students as $student) {
+    $year = $student['year_of_study'] ?? 1;
+    if (isset($unallocated_by_year[$year])) {
+        $unallocated_by_year[$year]++;
     }
 }
 
-// Calculate total available slots
-$available_slots = array_sum(array_column($site_capacity, 'available'));
+// Get site stats with student counts
+$site_stats = [];
+foreach ($sites as $site) {
+    $current = 0;
+    $site_students = [];
+    foreach ($allocations as $alloc) {
+        if ($alloc['site_id'] == $site['site_id']) {
+            $current++;
+            $site_students[] = $alloc;
+        }
+    }
+    $site_stats[$site['site_id']] = [
+        'name' => $site['name'],
+        'location' => $site['location'] ?? '',
+        'capacity' => $site['max_students'],
+        'current' => $current,
+        'available' => $site['max_students'] - $current,
+        'students' => $site_students
+    ];
+}
 
-// Role mapping based on year of study (FULL Year 1-4)
 $role_by_year = [
     1 => 'General Nursing',
     2 => 'Midwifery',
@@ -103,7 +94,6 @@ $role_by_year = [
     4 => 'Preceptorship'
 ];
 
-// Function to get role for student based on year
 function getRoleForStudent($student_year, $role_mode, $default_role) {
     global $role_by_year;
     if ($role_mode == 'auto') {
@@ -112,36 +102,9 @@ function getRoleForStudent($student_year, $role_mode, $default_role) {
     return $default_role;
 }
 
-// Function to check if a site offers a specific role
-function siteOffersRole($site, $role) {
-    $roles_offered = $site['roles_offered'] ?? [];
-    return in_array($role, $roles_offered);
-}
-
-// Function to log notification status
-function logNotification($conn, $student_id, $allocation_id, $recipient_email, $recipient_name, $status, $error_message = null) {
-    $stmt = $conn->prepare("
-        INSERT INTO notification_log (student_id, allocation_id, recipient_email, recipient_name, notification_type, status, error_message, sent_at) 
-        VALUES (?, ?, ?, ?, 'email', ?, ?, NOW())
-    ");
-    $stmt->execute([$student_id, $allocation_id, $recipient_email, $recipient_name, $status, $error_message]);
-}
-
-// Function to log allocation debug info
-function logAllocationDebug($conn, $run_id, $student_id, $site_id, $role, $status, $reason = null) {
-    $stmt = $conn->prepare("
-        INSERT INTO allocation_debug_log (run_id, student_id, site_id, role_assigned, status, reason) 
-        VALUES (?, ?, ?, ?, ?, ?)
-    ");
-    $stmt->execute([$run_id, $student_id, $site_id, $role, $status, $reason]);
-}
-
-// Handle auto allocation
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     $allocation_count = 0;
-    $allocation_errors = [];
     $notified_students = [];
-    $notification_failures = [];
     
     $start_date = $_POST['start_date'];
     $end_date = $_POST['end_date'];
@@ -149,174 +112,144 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     $default_role = $_POST['default_role'] ?? 'General Nursing';
     $send_notifications = isset($_POST['send_notifications']) ? true : false;
     
-    // Generate unique run ID for debugging
-    $run_id = uniqid('alloc_');
-    
-    // Reset site load for this allocation run
-    $current_site_load = $site_capacity;
-    
-    // Sort sites by available capacity (most available first)
-    $sorted_sites = $current_site_load;
-    uasort($sorted_sites, function($a, $b) {
-        return $b['available'] - $a['available'];
-    });
-    
-    $notification = new Notification($conn);
-    
-    // First, count how many students we need to allocate
-    $students_to_allocate = count($unallocated_students);
-    $total_available_capacity = array_sum(array_column($current_site_load, 'available'));
-    
-    if ($students_to_allocate > $total_available_capacity) {
-        $allocation_errors[] = "Warning: Not enough capacity! Need $students_to_allocate slots, only $total_available_capacity available.";
-    }
-    
-    // Get list of sites that have available capacity
-    $available_site_ids = array_keys(array_filter($sorted_sites, function($site) {
-        return $site['available'] > 0;
-    }));
-    
-    // Track year distribution for reporting (FIXED: removed the syntax error)
-    $year_allocation_count = [1 => 0, 2 => 0, 3 => 0, 4 => 0];
-    
-    // Smart allocation with role-site matching
-    $failed_students = [];
-    
-    foreach ($unallocated_students as $student) {
-        $allocated = false;
-        $student_year = $student['year_of_study'] ?? 1;
-        $required_role = getRoleForStudent($student_year, $role_mode, $default_role);
+    $conn->beginTransaction();
+    try {
+        $lockSites = $conn->prepare("SELECT site_id, max_students FROM clinical_site FOR UPDATE");
+        $lockSites->execute();
         
-        // Track year distribution
-        if (isset($year_allocation_count[$student_year])) {
-            $year_allocation_count[$student_year]++;
+        $freshSiteQuery = "SELECT cs.site_id, cs.name, cs.max_students, 
+                                  (SELECT COUNT(*) FROM allocation a WHERE a.site_id = cs.site_id AND a.status = 'active') as current_count
+                           FROM clinical_site cs ORDER BY cs.name";
+        $freshStmt = $conn->prepare($freshSiteQuery);
+        $freshStmt->execute();
+        $freshSites = $freshStmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $current_site_load = [];
+        foreach ($freshSites as $site) {
+            $site_id = $site['site_id'];
+            $current_count = (int)$site['current_count'];
+            $capacity = (int)$site['max_students'];
+            $current_site_load[$site_id] = [
+                'name' => $site['name'],
+                'capacity' => $capacity,
+                'current' => $current_count,
+                'available' => $capacity - $current_count
+            ];
         }
         
-        // First, try to find sites that offer this specific role AND have capacity
-        $eligible_sites = [];
-        foreach ($available_site_ids as $site_id) {
-            if ($current_site_load[$site_id]['available'] > 0 && siteOffersRole($current_site_load[$site_id], $required_role)) {
-                $eligible_sites[] = $site_id;
+        $notification = new Notification($conn);
+        
+        $students_by_year = [];
+        foreach ($unallocated_students as $s) {
+            $yr = $s['year_of_study'] ?? 1;
+            $students_by_year[$yr][] = $s;
+        }
+        
+        $interleaved_students = [];
+        $max_year_count = 0;
+        foreach ($students_by_year as $yr => $list) {
+            $max_year_count = max($max_year_count, count($list));
+        }
+        for ($i = 0; $i < $max_year_count; $i++) {
+            for ($yr = 1; $yr <= 4; $yr++) {
+                if (isset($students_by_year[$yr][$i])) {
+                    $interleaved_students[] = $students_by_year[$yr][$i];
+                }
             }
         }
         
-        // If no site offers this role, try to find ANY site with capacity (fallback)
-        if (empty($eligible_sites)) {
-            foreach ($available_site_ids as $site_id) {
-                if ($current_site_load[$site_id]['available'] > 0) {
+        function pickBestSite($eligible_site_ids, &$site_load) {
+            if (empty($eligible_site_ids)) return null;
+            $best_site_id = null;
+            $lowest_utilization = PHP_FLOAT_MAX;
+            foreach ($eligible_site_ids as $site_id) {
+                if (!isset($site_load[$site_id])) continue;
+                $site = $site_load[$site_id];
+                if ($site['available'] <= 0) continue;
+                $utilization = $site['capacity'] > 0 ? ($site['current'] / $site['capacity']) : 1;
+                $adjusted_utilization = $utilization + (mt_rand(0, 50) / 1000);
+                if ($adjusted_utilization < $lowest_utilization) {
+                    $lowest_utilization = $adjusted_utilization;
+                    $best_site_id = $site_id;
+                }
+            }
+            return $best_site_id;
+        }
+        
+        $insertAllocStmt = $conn->prepare("INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) VALUES (:student_id, :site_id, :start_date, :end_date, :role, 'active')");
+        $checkAllocStmt = $conn->prepare("SELECT alloc_id FROM allocation WHERE student_id = :student_id AND status = 'active'");
+        
+        foreach ($interleaved_students as $student) {
+            $allocated = false;
+            $student_year = $student['year_of_study'] ?? 1;
+            $required_role = getRoleForStudent($student_year, $role_mode, $default_role);
+            
+            $checkAllocStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
+            $checkAllocStmt->execute();
+            if ($checkAllocStmt->fetch()) {
+                continue;
+            }
+            
+            $eligible_sites = [];
+            foreach ($current_site_load as $site_id => $site_data) {
+                if ($site_data['available'] > 0) {
                     $eligible_sites[] = $site_id;
                 }
             }
-            if (!empty($eligible_sites)) {
-                $allocation_errors[] = "Note: Student {$student['name']} (Year $student_year) requires '$required_role' but no site offers it. Allocated to available site with default role.";
-                $required_role = $default_role;
-            }
-        }
-        
-        // Try to allocate to eligible sites
-        foreach ($eligible_sites as $site_id) {
-            if ($allocated) break;
             
-            if ($current_site_load[$site_id]['available'] > 0) {
-                $result = $coordinator->createAllocation(
-                    $student['student_id'],
-                    $site_id,
-                    $start_date,
-                    $end_date,
-                    $required_role
-                );
+            $best_site_id = pickBestSite($eligible_sites, $current_site_load);
+            
+            if ($best_site_id !== null) {
+                $insertAllocStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
+                $insertAllocStmt->bindParam(':site_id', $best_site_id, PDO::PARAM_INT);
+                $insertAllocStmt->bindParam(':start_date', $start_date);
+                $insertAllocStmt->bindParam(':end_date', $end_date);
+                $insertAllocStmt->bindParam(':role', $required_role);
+                $insertResult = $insertAllocStmt->execute();
                 
-                if ($result) {
+                if ($insertResult) {
                     $allocation_count++;
-                    $current_site_load[$site_id]['current']++;
-                    $current_site_load[$site_id]['available']--;
-                    $available_site_ids = array_keys(array_filter($current_site_load, function($site) {
-                        return $site['available'] > 0;
-                    }));
+                    $current_site_load[$best_site_id]['current']++;
+                    $current_site_load[$best_site_id]['available']--;
                     $allocated = true;
                     
-                    // Log success
-                    logAllocationDebug($conn, $run_id, $student['student_id'], $site_id, $required_role, 'success', null);
-                    
-                    // Send notification if enabled
                     if ($send_notifications) {
                         try {
-                            $studentQuery = "SELECT email, name FROM student WHERE student_id = :student_id";
-                            $studentStmt = $conn->prepare($studentQuery);
-                            $studentStmt->bindParam(':student_id', $student['student_id']);
-                            $studentStmt->execute();
-                            $studentData = $studentStmt->fetch(PDO::FETCH_ASSOC);
-                            
+                            $studentEmailStmt = $conn->prepare("SELECT email, name FROM student WHERE student_id = :student_id");
+                            $studentEmailStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
+                            $studentEmailStmt->execute();
+                            $studentData = $studentEmailStmt->fetch(PDO::FETCH_ASSOC);
                             if ($studentData) {
-                                $siteQuery = "SELECT name FROM clinical_site WHERE site_id = :site_id";
-                                $siteStmt = $conn->prepare($siteQuery);
-                                $siteStmt->bindParam(':site_id', $site_id);
-                                $siteStmt->execute();
-                                $siteData = $siteStmt->fetch(PDO::FETCH_ASSOC);
-                                
-                                $notify_result = $notification->sendAllocationNotification(
-                                    $student['student_id'],
-                                    $studentData['email'],
-                                    $studentData['name'],
-                                    $siteData['name'],
-                                    $start_date,
-                                    $end_date,
-                                    $required_role,
-                                    'both'
+                                $siteNameStmt = $conn->prepare("SELECT name FROM clinical_site WHERE site_id = :site_id");
+                                $siteNameStmt->bindParam(':site_id', $best_site_id, PDO::PARAM_INT);
+                                $siteNameStmt->execute();
+                                $siteData = $siteNameStmt->fetch(PDO::FETCH_ASSOC);
+                                $notification->sendAllocationNotification(
+                                    $student['student_id'], $studentData['email'], $studentData['name'],
+                                    $siteData['name'], $start_date, $end_date, $required_role, 'both'
                                 );
-                                
-                                // Log notification result
-                                if ($notify_result['email_sent']) {
-                                    $notified_students[] = $studentData['name'];
-                                    logNotification($conn, $student['student_id'], $result, $studentData['email'], $studentData['name'], 'sent', null);
-                                } else {
-                                    $notification_failures[] = $studentData['name'];
-                                    $error_msg = $notify_result['email_error'] ?? 'Unknown error';
-                                    logNotification($conn, $student['student_id'], $result, $studentData['email'], $studentData['name'], 'failed', $error_msg);
-                                }
+                                $notified_students[] = $studentData['name'];
                             }
-                        } catch (Exception $e) {
-                            $notification_failures[] = $student['name'];
-                            logNotification($conn, $student['student_id'], $result, null, $student['name'], 'failed', $e->getMessage());
-                        }
+                        } catch (Exception $e) {}
                     }
-                    break;
                 }
             }
         }
         
-        if (!$allocated) {
-            $failed_students[] = $student;
-            $error_reason = "No available site with capacity offering role: $required_role (Year: $student_year)";
-            $allocation_errors[] = "Failed to allocate: {$student['name']} ({$student['student_number']}) - Year $student_year needs '$required_role' - $error_reason";
-            logAllocationDebug($conn, $run_id, $student['student_id'], null, $required_role, 'failed', $error_reason);
-        }
+        $conn->commit();
+        
+    } catch (Exception $e) {
+        $conn->rollBack();
+        $message = "Error: " . $e->getMessage();
     }
     
-    // Build result message
     if ($allocation_count > 0) {
-        $message = "Auto-allocation completed! Successfully allocated: $allocation_count students.";
-        
-        // Add year breakdown
-        $message .= " (Year 1: {$year_allocation_count[1]}, Year 2: {$year_allocation_count[2]}, Year 3: {$year_allocation_count[3]}, Year 4: {$year_allocation_count[4]})";
-        
-        if ($send_notifications) {
-            if (count($notified_students) > 0) {
-                $message .= " Notifications sent to " . count($notified_students) . " students.";
-            }
-            if (count($notification_failures) > 0) {
-                $message .= " Failed to send notifications to " . count($notification_failures) . " students. Check notification_log table.";
-            }
+        $message = "Allocated $allocation_count students.";
+        if (count($notified_students) > 0) {
+            $message .= " Notified " . count($notified_students) . " students.";
         }
-        if (count($failed_students) > 0) {
-            $message .= " " . count($failed_students) . " students could not be allocated due to capacity or role mismatch.";
-        }
-        
-        // Refresh data
         header("Location: auto_allocate.php?success=" . urlencode($message));
         exit;
-    } else {
-        $error = "No students were allocated. Please check site capacities, role offerings (especially for Year 4/Preceptorship), and available students.";
     }
 }
 
@@ -324,7 +257,7 @@ if (isset($_GET['success'])) {
     $message = $_GET['success'];
 }
 
-// Recalculate after potential allocation
+// Refresh allocations after potential changes
 $allocations = $coordinator->getAllocationsWithDaysRemaining();
 $allocated_students = [];
 foreach ($allocations as $alloc) {
@@ -338,7 +271,6 @@ foreach ($all_students as $student) {
     }
 }
 
-// Count unallocated students by year for better reporting
 $unallocated_by_year = [1 => 0, 2 => 0, 3 => 0, 4 => 0];
 foreach ($unallocated_students as $student) {
     $year = $student['year_of_study'] ?? 1;
@@ -351,27 +283,24 @@ $total_allocated = count($allocated_students);
 $total_capacity = array_sum(array_column($sites, 'max_students'));
 $available_slots = $total_capacity - $total_allocated;
 
-// Calculate per-site stats for display
+// Refresh site stats with updated student lists
 $site_stats = [];
 foreach ($sites as $site) {
     $current = 0;
+    $site_students = [];
     foreach ($allocations as $alloc) {
         if ($alloc['site_id'] == $site['site_id']) {
             $current++;
+            $site_students[] = $alloc;
         }
     }
-    $roles_display = isset($site_roles[$site['site_id']]) ? implode(', ', $site_roles[$site['site_id']]) : 'All roles';
-    
-    // Check if site offers Preceptorship (Year 4)
-    $has_preceptorship = in_array('Preceptorship', $site_roles[$site['site_id']] ?? []);
-    $preceptorship_badge = $has_preceptorship ? ' ✅ Year 4 Ready' : '';
-    
     $site_stats[$site['site_id']] = [
         'name' => $site['name'],
+        'location' => $site['location'] ?? '',
         'capacity' => $site['max_students'],
         'current' => $current,
         'available' => $site['max_students'] - $current,
-        'roles_offered' => $roles_display . $preceptorship_badge
+        'students' => $site_students
     ];
 }
 ?>
@@ -383,356 +312,63 @@ foreach ($sites as $site) {
     <title>Auto Allocation - Coordinator Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #654321;
-            min-height: 100vh;
-        }
-        
-        .header {
-            background: #4a2f1a;
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 15px;
-            border-bottom: 1px solid #c3a343;
-        }
-        
-        .header h1 {
-            color: #c3a343;
-            font-size: 1.3rem;
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .user-info span {
-            color: white;
-        }
-        
-        .role-badge {
-            background: #c3a343;
-            color: #4a2f1a;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        
-        .btn-logout {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            padding: 6px 16px;
-            border-radius: 30px;
-            text-decoration: none;
-            font-size: 0.8rem;
-            transition: 0.3s;
-        }
-        
-        .btn-logout:hover {
-            background: #dc3545;
-        }
-        
-        .nav-tabs {
-            background: #5a3a2a;
-            display: flex;
-            gap: 5px;
-            padding: 0 20px;
-            flex-wrap: wrap;
-        }
-        
-        .nav-tab {
-            padding: 15px 25px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
-            color: #ddd;
-            transition: 0.3s;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .nav-tab:hover {
-            color: #c3a343;
-        }
-        
-        .nav-tab.active {
-            color: #c3a343;
-            border-bottom: 3px solid #c3a343;
-            background: #4a2f1a;
-        }
-        
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 30px 20px;
-        }
-        
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .card h2 {
-            color: #4a2f1a;
-            margin-bottom: 20px;
-            border-left: 4px solid #c3a343;
-            padding-left: 15px;
-        }
-        
-        .stats {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .stat-box {
-            flex: 1;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            border-bottom: 2px solid #c3a343;
-        }
-        
-        .stat-number {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #4a2f1a;
-        }
-        
-        .stat-label {
-            color: #666;
-            font-size: 0.75rem;
-        }
-        
-        .site-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .site-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            border-left: 3px solid #c3a343;
-        }
-        
-        .site-name {
-            font-weight: 600;
-            color: #4a2f1a;
-            margin-bottom: 10px;
-        }
-        
-        .site-capacity {
-            font-size: 0.8rem;
-            color: #666;
-        }
-        
-        .site-roles {
-            font-size: 0.7rem;
-            color: #c3a343;
-            margin-top: 8px;
-            font-style: italic;
-        }
-        
-        .capacity-bar {
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 4px;
-            margin: 10px 0;
-            overflow: hidden;
-        }
-        
-        .capacity-fill {
-            height: 100%;
-            background: #28a745;
-            border-radius: 4px;
-            transition: width 0.3s;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #4a2f1a;
-        }
-        
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 0.95rem;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #c3a343;
-        }
-        
-        .radio-group {
-            display: flex;
-            gap: 20px;
-            margin-top: 10px;
-            flex-wrap: wrap;
-        }
-        
-        .radio-group label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: normal;
-            cursor: pointer;
-        }
-        
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .checkbox-group input {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-        }
-        
-        .checkbox-group label {
-            font-weight: 500;
-            color: #4a2f1a;
-            cursor: pointer;
-        }
-        
-        .btn-primary {
-            background: #4a2f1a;
-            color: white;
-            padding: 12px 30px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            transition: 0.3s;
-            width: 100%;
-        }
-        
-        .btn-primary:hover {
-            background: #654321;
-        }
-        
-        .success-msg {
-            background: #d4edda;
-            color: #155724;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            border-left: 4px solid #28a745;
-        }
-        
-        .error-msg {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            border-left: 4px solid #dc3545;
-        }
-        
-        .info-box {
-            background: #f0f7ff;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            border-left: 4px solid #c3a343;
-        }
-        
-        .info-box ul {
-            margin-left: 20px;
-            margin-top: 5px;
-        }
-        
-        .info-box li {
-            font-size: 0.8rem;
-            margin: 3px 0;
-        }
-        
-        .manual-role-div {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border-left: 3px solid #c3a343;
-        }
-        
-        .warning-box {
-            background: #fff3cd;
-            color: #856404;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            border-left: 4px solid #ffc107;
-            font-size: 0.85rem;
-        }
-        
-        .year-stats {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        
-        .year-badge {
-            background: #e9ecef;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-        }
-        
-        .year-badge.year4 {
-            background: #c3a343;
-            color: #4a2f1a;
-            font-weight: bold;
-        }
-        
-        @media (max-width: 768px) {
-            .container { padding: 20px; }
-            .header { flex-direction: column; text-align: center; }
-            .nav-tabs { justify-content: center; }
-            .stats { flex-direction: column; }
-            .site-stats { grid-template-columns: 1fr; }
-            .radio-group { flex-direction: column; gap: 10px; }
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .header { background: #4a2f1a; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+        .header h1 { color: #c3a343; font-size: 1.3rem; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        .user-info span { color: white; }
+        .role-badge { background: #c3a343; color: #4a2f1a; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+        .btn-logout { background: rgba(255,255,255,0.2); color: white; padding: 6px 16px; border-radius: 30px; text-decoration: none; font-size: 0.8rem; }
+        .btn-logout:hover { background: #dc3545; }
+        .nav-tabs { background: #5a3a2a; display: flex; gap: 5px; padding: 0 20px; flex-wrap: wrap; }
+        .nav-tab { padding: 15px 25px; background: none; border: none; font-size: 1rem; font-weight: 500; color: #ddd; text-decoration: none; display: inline-block; }
+        .nav-tab:hover { color: #c3a343; }
+        .nav-tab.active { color: #c3a343; border-bottom: 3px solid #c3a343; background: #4a2f1a; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 30px 20px; }
+        .card { background: white; border-radius: 12px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .card h2 { color: #4a2f1a; margin-bottom: 20px; border-left: 4px solid #c3a343; padding-left: 15px; }
+        .stats { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
+        .stat-box { flex: 1; background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border-bottom: 2px solid #c3a343; }
+        .stat-number { font-size: 1.8rem; font-weight: 700; color: #4a2f1a; }
+        .stat-label { color: #666; font-size: 0.75rem; }
+        .site-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+        .site-card { background: #f8f9fa; border-radius: 12px; padding: 20px; border-left: 4px solid #c3a343; transition: 0.2s; }
+        .site-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .site-name { font-size: 1.1rem; font-weight: 700; color: #4a2f1a; margin-bottom: 8px; }
+        .site-location { font-size: 0.8rem; color: #888; margin-bottom: 12px; }
+        .site-capacity { font-size: 0.85rem; color: #555; margin: 8px 0; }
+        .capacity-bar { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 10px 0; overflow: hidden; }
+        .capacity-fill { height: 100%; background: #28a745; border-radius: 4px; transition: width 0.3s; }
+        .view-btn { background: #c3a343; color: #4a2f1a; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; width: 100%; margin-top: 12px; }
+        .view-btn:hover { background: #d4b35a; }
+        .students-list { margin-top: 15px; background: white; border-radius: 8px; padding: 12px; border: 1px solid #e0e0e0; display: none; }
+        .students-list h4 { font-size: 0.85rem; color: #4a2f1a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #eee; }
+        .students-list ul { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+        .students-list li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.8rem; color: #333; }
+        .students-list li:last-child { border-bottom: none; }
+        .student-role { font-size: 0.7rem; color: #c3a343; margin-left: 8px; }
+        .empty-list { color: #999; font-size: 0.8rem; text-align: center; padding: 10px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #4a2f1a; }
+        .form-group input, .form-group select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #c3a343; }
+        .radio-group { display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap; }
+        .radio-group label { display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; }
+        .checkbox-group { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+        .checkbox-group input { width: 20px; height: 20px; cursor: pointer; }
+        .btn-primary { background: #4a2f1a; color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 600; width: 100%; }
+        .btn-primary:hover { background: #654321; }
+        .success-msg { background: #d4edda; color: #155724; padding: 12px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #28a745; }
+        .info-box { background: #f0f7ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #c3a343; }
+        .info-box ul { margin-left: 20px; margin-top: 5px; }
+        .info-box li { font-size: 0.8rem; margin: 3px 0; }
+        .manual-role-div { margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 3px solid #c3a343; }
+        .year-stats { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; justify-content: center; }
+        .year-badge { background: #e9ecef; padding: 8px 15px; border-radius: 20px; font-size: 0.8rem; }
+        .year-badge.year4 { background: #c3a343; color: #4a2f1a; font-weight: bold; }
+        @media (max-width: 768px) { .container { padding: 20px; } .header { flex-direction: column; text-align: center; } .nav-tabs { justify-content: center; } .stats { flex-direction: column; } .site-stats { grid-template-columns: 1fr; } }
     </style>
-    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
     <div class="header">
@@ -757,44 +393,12 @@ foreach ($sites as $site) {
         <?php if ($message): ?>
             <div class="success-msg"><?php echo cleanDisplay(htmlspecialchars($message)); ?></div>
         <?php endif; ?>
-        <?php if ($error): ?>
-            <div class="error-msg"><?php echo cleanDisplay(htmlspecialchars($error)); ?></div>
-        <?php endif; ?>
         
-        <!-- Role-Site Matching Info -->
-        <div class="warning-box">
-            <strong>🔧 Role-Site Matching Active:</strong> Students will only be allocated to sites that offer their required role.
-            <br><strong>Year 4 (Preceptorship):</strong> Sites marked with "✅ Year 4 Ready" can accept final year students.
-        </div>
-        
-        <!-- Site Capacity Overview -->
-        <div class="card">
-            <h2>Clinical Sites Capacity & Offered Roles</h2>
-            <div class="site-stats">
-                <?php foreach ($site_stats as $site): ?>
-                <div class="site-card">
-                    <div class="site-name"><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></div>
-                    <div class="site-capacity">
-                        <?php echo $site['current']; ?> / <?php echo $site['capacity']; ?> students
-                    </div>
-                    <div class="capacity-bar">
-                        <div class="capacity-fill" style="width: <?php echo ($site['capacity'] > 0) ? ($site['current'] / $site['capacity']) * 100 : 0; ?>%"></div>
-                    </div>
-                    <div class="site-capacity">
-                        Available: <?php echo $site['available']; ?> slots
-                    </div>
-                    <div class="site-roles">
-                        🏥 Offers: <?php echo cleanDisplay(htmlspecialchars($site['roles_offered'])); ?>
-                    </div>
-                </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        
+        <!-- Statistics -->
         <div class="stats">
             <div class="stat-box">
                 <div class="stat-number"><?php echo count($unallocated_students); ?></div>
-                <div class="stat-label">Pending Allocation</div>
+                <div class="stat-label">Unallocated Students</div>
                 <?php if (count($unallocated_students) > 0): ?>
                 <div class="year-stats">
                     <?php foreach ($unallocated_by_year as $year => $count): ?>
@@ -815,66 +419,97 @@ foreach ($sites as $site) {
             </div>
         </div>
         
+        <!-- Clinical Sites List -->
         <div class="card">
-            <h2>Auto Allocation Settings</h2>
-            
+            <h2>Clinical Sites</h2>
+            <div class="site-stats">
+                <?php foreach ($site_stats as $site_id => $site): ?>
+                <div class="site-card">
+                    <div class="site-name"><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></div>
+                    <div class="site-location">📍 <?php echo cleanDisplay(htmlspecialchars($site['location'] ?: 'Location not specified')); ?></div>
+                    <div class="site-capacity">📊 Capacity: <?php echo $site['current']; ?> / <?php echo $site['capacity']; ?> students</div>
+                    <div class="site-capacity">✅ Available: <?php echo $site['available']; ?> slots</div>
+                    <div class="capacity-bar">
+                        <div class="capacity-fill" style="width: <?php echo ($site['capacity'] > 0) ? ($site['current'] / $site['capacity']) * 100 : 0; ?>%"></div>
+                    </div>
+                    <button class="view-btn" onclick="toggleSite(<?php echo $site_id; ?>)">👁 View Students (<?php echo $site['current']; ?>)</button>
+                    <div id="site-<?php echo $site_id; ?>" class="students-list">
+                        <h4>Students Placed Here</h4>
+                        <?php if (count($site['students']) > 0): ?>
+                            <ul>
+                            <?php foreach ($site['students'] as $stu): 
+                                // Direct database query to get student info
+                                $studentQuery = $conn->prepare("SELECT name, student_number FROM student WHERE student_id = :sid");
+                                $studentQuery->bindParam(':sid', $stu['student_id'], PDO::PARAM_INT);
+                                $studentQuery->execute();
+                                $studentData = $studentQuery->fetch(PDO::FETCH_ASSOC);
+                                if ($studentData):
+                            ?>
+                                <li>
+                                    <?php echo htmlspecialchars($studentData['name']); ?> 
+                                    (<?php echo htmlspecialchars($studentData['student_number']); ?>)
+                                    <span class="student-role">- <?php echo htmlspecialchars($stu['role']); ?></span>
+                                </li>
+                            <?php endif; endforeach; ?>
+                            </ul>
+                        <?php else: ?>
+                            <div class="empty-list">No students placed at this site yet</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        
+        <!-- Auto Allocation Form -->
+        <div class="card">
+            <h2>Auto Allocation</h2>
             <?php if (count($unallocated_students) == 0): ?>
-                <div class="success-msg" style="text-align: center;">
-                    All students have been allocated. No pending allocations.
-                </div>
+                <div class="success-msg" style="text-align:center;">✅ All students have been allocated. No pending allocations.</div>
             <?php elseif ($available_slots <= 0): ?>
-                <div class="error-msg" style="text-align: center;">
-                    No available capacity. Please add more clinical sites or increase capacity.
-                </div>
+                <div class="success-msg" style="text-align:center;background:#fff3cd;color:#856404;border-left-color:#ffc107;">⚠️ No available slots. Please increase site capacity or add more clinical sites.</div>
             <?php else: ?>
                 <form method="POST">
                     <div class="form-group">
-                        <label>Placement Start Date</label>
+                        <label>📅 Placement Start Date</label>
                         <input type="date" name="start_date" required>
                     </div>
                     <div class="form-group">
-                        <label>Placement End Date</label>
+                        <label>📅 Placement End Date</label>
                         <input type="date" name="end_date" required>
                     </div>
                     
                     <div class="form-group">
-                        <label>Role Assignment Mode</label>
+                        <label>🎓 Role Assignment Mode</label>
                         <div class="radio-group">
-                            <label>
-                                <input type="radio" name="role_mode" value="auto" checked> Auto (Based on Year of Study)
-                            </label>
-                            <label>
-                                <input type="radio" name="role_mode" value="manual"> Manual (Same Role for All)
-                            </label>
+                            <label><input type="radio" name="role_mode" value="auto" checked> Auto (Based on Year of Study)</label>
+                            <label><input type="radio" name="role_mode" value="manual"> Manual (Same Role for All)</label>
                         </div>
                     </div>
                     
-                    <div id="manualRoleDiv" class="manual-role-div" style="display: none;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label>Default Role (for all students)</label>
+                    <div id="manualRoleDiv" class="manual-role-div" style="display:none;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>Default Role</label>
                             <input type="text" name="default_role" value="General Nursing">
                         </div>
                     </div>
                     
                     <div id="autoRoleInfo" class="info-box">
-                        <p><strong>Auto Role Mapping (Based on Year of Study):</strong></p>
+                        <p><strong>Year to Role Mapping:</strong></p>
                         <ul>
-                            <li>Year 1 → <strong>General Nursing</strong> (Basic Care)</li>
-                            <li>Year 2 → <strong>Midwifery</strong> (Specialized Care)</li>
-                            <li>Year 3 → <strong>Critical Care</strong> (Complex Care)</li>
-                            <li>Year 4 → <strong>Preceptorship</strong> (Leadership & Teaching)</li>
+                            <li>Year 1 → General Nursing (Basic Care)</li>
+                            <li>Year 2 → Midwifery (Specialized Care)</li>
+                            <li>Year 3 → Critical Care (Complex Care)</li>
+                            <li>Year 4 → Preceptorship (Leadership)</li>
                         </ul>
-                        <p style="margin-top: 10px; font-size: 0.8rem; color: #c3a343;">
-                            <strong>Note:</strong> Year 4 (Preceptorship) students will only be allocated to sites marked "Year 4 Ready" above.
-                        </p>
                     </div>
                     
                     <div class="checkbox-group">
                         <input type="checkbox" name="send_notifications" id="send_notifications" checked>
-                        <label for="send_notifications">Send notifications to students (logged in notification_log table)</label>
+                        <label for="send_notifications">📧 Send email notifications to students</label>
                     </div>
                     
-                    <button type="submit" name="auto_allocate" class="btn-primary">Run Auto Allocation</button>
+                    <button type="submit" name="auto_allocate" class="btn-primary">🚀 Run Auto Allocation</button>
                 </form>
             <?php endif; ?>
         </div>
@@ -887,39 +522,39 @@ foreach ($sites as $site) {
         const autoRoleInfo = document.getElementById('autoRoleInfo');
         
         function toggleRoleMode() {
-            const selectedMode = document.querySelector('input[name="role_mode"]:checked').value;
-            if (selectedMode === 'manual') {
-                manualRoleDiv.style.display = 'block';
-                autoRoleInfo.style.display = 'none';
+            const mode = document.querySelector('input[name="role_mode"]:checked').value;
+            manualRoleDiv.style.display = mode === 'manual' ? 'block' : 'none';
+            autoRoleInfo.style.display = mode === 'auto' ? 'block' : 'none';
+        }
+        roleModeRadios.forEach(r => r.addEventListener('change', toggleRoleMode));
+        toggleRoleMode();
+        
+        // Toggle site details
+        function toggleSite(id) {
+            const el = document.getElementById('site-' + id);
+            if (el.style.display === 'none' || el.style.display === '') {
+                el.style.display = 'block';
             } else {
-                manualRoleDiv.style.display = 'none';
-                autoRoleInfo.style.display = 'block';
+                el.style.display = 'none';
             }
         }
         
-        roleModeRadios.forEach(radio => {
-            radio.addEventListener('change', toggleRoleMode);
-        });
-        
-        toggleRoleMode();
+        // Hide all site details initially
+        document.querySelectorAll('.students-list').forEach(el => el.style.display = 'none');
         
         // Set default dates
-        const startDateInput = document.querySelector('input[name="start_date"]');
-        const endDateInput = document.querySelector('input[name="end_date"]');
-        
-        if (startDateInput && !startDateInput.value) {
-            const nextMonday = new Date();
-            const daysUntilMonday = (1 - nextMonday.getDay() + 7) % 7 || 7;
-            nextMonday.setDate(nextMonday.getDate() + daysUntilMonday);
-            startDateInput.value = nextMonday.toISOString().split('T')[0];
+        const startInput = document.querySelector('input[name="start_date"]');
+        const endInput = document.querySelector('input[name="end_date"]');
+        if (startInput && !startInput.value) {
+            const nextMon = new Date();
+            nextMon.setDate(nextMon.getDate() + ((1 - nextMon.getDay() + 7) % 7 || 7));
+            startInput.value = nextMon.toISOString().split('T')[0];
         }
-        
-        if (endDateInput && !endDateInput.value && startDateInput.value) {
-            const endDate = new Date(startDateInput.value);
-            endDate.setDate(endDate.getDate() + 84);
-            endDateInput.value = endDate.toISOString().split('T')[0];
+        if (endInput && !endInput.value && startInput.value) {
+            const end = new Date(startInput.value);
+            end.setDate(end.getDate() + 84);
+            endInput.value = end.toISOString().split('T')[0];
         }
     </script>
-    <script src="js/page-loader.js"></script>
 </body>
 </html>

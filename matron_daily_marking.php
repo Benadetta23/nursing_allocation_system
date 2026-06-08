@@ -645,8 +645,10 @@ if ($selected_site_id && $active_tab == 'history') {
                             $existing_mark = $marks_lookup[$student['student_id']] ?? null;
                             $is_finalized = $matron->isMatronAssessmentFinalized($student['student_id']);
                             $aggregate_score = $matron->getDailyMarksAggregate($student['student_id']);
+                            $assessed_by_other_matron = ($student['matron_exists'] && !$student['already_assessed']);
+                            $can_mark = !$is_finalized && !$assessed_by_other_matron;
                         ?>
-                        <div class="student-mark-card <?php echo $is_finalized ? 'finalized' : ''; ?>">
+                        <div class="student-mark-card <?php echo $is_finalized ? 'finalized' : ($assessed_by_other_matron ? 'other-matron' : ''); ?>">
                             <div class="student-header">
                                 <h4><?php echo htmlspecialchars($student['name']); ?></h4>
                                 <p><?php echo htmlspecialchars($student['student_number']); ?> | Cohort: <?php echo $student['cohort']; ?> | Role: <?php echo $student['role']; ?></p>
@@ -659,7 +661,18 @@ if ($selected_site_id && $active_tab == 'history') {
                                 <?php endif; ?>
                             </div>
                             
-                            <?php if (!$is_finalized): ?>
+                            <?php if ($assessed_by_other_matron): ?>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8d7da; border-radius: 8px; border-left: 3px solid #dc3545; color: #721c24; font-size: 0.85rem;">
+                                <strong>Already assessed by another matron</strong><br>
+                                This student is being handled by a different matron. Contact coordinator to reassign.
+                            </div>
+                            <?php elseif ($is_finalized): ?>
+                            <div class="final-assessment-box" style="margin-top: 10px;">
+                                <p><strong>Final Assessment Submitted</strong></p>
+                                <p>Aggregate Score: <span class="aggregate-score"><?php echo $aggregate_score; ?>%</span></p>
+                                <p>This student is now ready for lecturer assessment.</p>
+                            </div>
+                            <?php else: ?>
                             <div class="score-row">
                                 <div class="score-item">
                                     <label>Attendance</label>
@@ -704,12 +717,6 @@ if ($selected_site_id && $active_tab == 'history') {
                             </div>
                             
                             <button type="submit" name="save_daily_marking" value="1" class="btn-save-student">Save for <?php echo htmlspecialchars($student['name']); ?></button>
-                            <?php else: ?>
-                            <div class="final-assessment-box" style="margin-top: 10px;">
-                                <p><strong>Final Assessment Submitted</strong></p>
-                                <p>Aggregate Score: <span class="aggregate-score"><?php echo $aggregate_score; ?>%</span></p>
-                                <p>This student is now ready for lecturer assessment.</p>
-                            </div>
                             <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
@@ -833,6 +840,5 @@ if ($selected_site_id && $active_tab == 'history') {
         
         <?php endif; ?>
     </div>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>

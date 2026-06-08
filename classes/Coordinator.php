@@ -899,6 +899,89 @@ class Coordinator {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    // ============ LECTURER OPERATIONS ============
+    
+    public function getLecturers() {
+        $query = "SELECT lecturer_id, name, email FROM lecturer ORDER BY name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    public function addLecturer($lecturer_id, $name, $email) {
+        // Check if lecturer already exists
+        $checkQuery = "SELECT lecturer_id FROM lecturer WHERE lecturer_id = :lecturer_id OR email = :email";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':lecturer_id', $lecturer_id);
+        $checkStmt->bindParam(':email', $email);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false;
+        }
+        
+        $password_hash = password_hash('pass', PASSWORD_DEFAULT);
+        $query = "INSERT INTO lecturer (lecturer_id, name, email, password_hash) 
+                  VALUES (:lecturer_id, :name, :email, :password_hash)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':lecturer_id', $lecturer_id);
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':email', $email);
+        $stmt->bindParam(':password_hash', $password_hash);
+        return $stmt->execute();
+    }
+    
+    public function deleteLecturer($lecturer_id) {
+        $query = "DELETE FROM lecturer WHERE lecturer_id = :lecturer_id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':lecturer_id', $lecturer_id);
+        return $stmt->execute();
+    }
+    
+    // ============ MATRON OPERATIONS ============
+    
+    public function getMatrons() {
+        $query = "SELECT m.matron_id, m.name, m.email, m.site_id, 
+                         COALESCE(cs.name, 'Not Assigned') as site_name
+                  FROM matron m 
+                  LEFT JOIN clinical_site cs ON m.site_id = cs.site_id 
+                  ORDER BY m.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    public function addMatron($matron_id, $name, $email, $site_id = null) {
+        // Check if matron already exists
+        $checkQuery = "SELECT matron_id FROM matron WHERE matron_id = :matron_id OR email = :email";
+        $checkStmt = $this->conn->prepare($checkQuery);
+        $checkStmt->bindParam(':matron_id', $matron_id);
+        $checkStmt->bindParam(':email', $email);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() > 0) {
+            return false;
+        }
+        
+        $password_hash = password_hash('pass', PASSWORD_DEFAULT);
+        $query = "INSERT INTO matron (matron_id, name, email, password_hash, site_id) 
+                  VALUES (:matron_id, :name, :email, :password_hash, :site_id)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':matron_id', $matron_id);
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':email', $email);
+        $stmt->bindParam(':password_hash', $password_hash);
+        $stmt->bindParam(':site_id', $site_id);
+        return $stmt->execute();
+    }
+    
+    public function deleteMatron($matron_id) {
+        $query = "DELETE FROM matron WHERE matron_id = :matron_id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':matron_id', $matron_id);
+        return $stmt->execute();
+    }
+    
     // ============ DATE RANGE REPORT ============
     
     public function getReportByDateRange($date_from, $date_to) {

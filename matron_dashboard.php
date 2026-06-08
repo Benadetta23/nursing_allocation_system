@@ -1323,6 +1323,5 @@ if ($selected_site_id) {
             }
         }
     </script>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>

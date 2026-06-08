@@ -247,8 +247,7 @@ function exportToFormat($data, $filename, $format, $headers, $report_type) {
             echo '</table>';
         }
         echo '<div class="footer">Daeyang University Nursing Department - Official Report</div>';
-        echo '    <script src="js/page-loader.js"></script>
-</body></html>';
+        echo '    </body></html>';
         echo '<script>window.print();</script>';
         exit;
     }

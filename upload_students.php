@@ -381,6 +381,5 @@ if (isset($_GET['download_template'])) {
             </div>
         </div>
     </div>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>

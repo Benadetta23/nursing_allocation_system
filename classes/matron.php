@@ -35,6 +35,8 @@ class Matron {
     }
     
     // Get students at a specific site
+    // FIX: Show whether ANY matron has assessed this student (not just this matron)
+    // to prevent multiple matrons assessing the same student
     public function getStudentsAtSite($site_id) {
         $query = "SELECT DISTINCT s.student_id, s.name, s.student_number, s.cohort, s.program,
                          a.alloc_id, a.start_date, a.end_date, a.role, a.site_id,
@@ -46,7 +48,15 @@ class Matron {
                                           AND ass.site_id = :site_id) 
                              THEN 1 
                              ELSE 0 
-                         END as already_assessed
+                         END as already_assessed,
+                         CASE 
+                             WHEN EXISTS (SELECT 1 FROM assessment ass 
+                                          WHERE ass.student_id = s.student_id 
+                                          AND ass.assessor_type = 'matron' 
+                                          AND ass.site_id = :site_id) 
+                             THEN 1 
+                             ELSE 0 
+                         END as matron_exists
                   FROM allocation a 
                   JOIN student s ON a.student_id = s.student_id
                   WHERE a.site_id = :site_id AND a.status = 'active'
@@ -132,6 +142,21 @@ class Matron {
     // Save or update daily mark for a student
     public function saveOrUpdateDailyMark($student_id, $site_id, $attendance, $punctuality, $performance, $behavior, $comments) {
         $marking_date = date('Y-m-d');
+        
+        // FIX: Check if another matron has already assessed this student (one-matron rule)
+        $otherMatronCheck = "SELECT assessor_id FROM assessment 
+                             WHERE student_id = :student_id 
+                             AND assessor_type = 'matron' 
+                             AND site_id = :site_id 
+                             AND assessor_id != :matron_id2";
+        $otherStmt = $this->conn->prepare($otherMatronCheck);
+        $otherStmt->bindParam(':student_id', $student_id);
+        $otherStmt->bindParam(':site_id', $site_id);
+        $otherStmt->bindParam(':matron_id2', $this->matron_id);
+        $otherStmt->execute();
+        if ($otherStmt->fetch()) {
+            return false; // Another matron is handling this student
+        }
         
         // Check if daily mark for this date already exists
         $checkQuery = "SELECT daily_mark_id FROM daily_marking 
@@ -242,12 +267,29 @@ class Matron {
     }
     
     // Calculate aggregate of all daily marks for a student
+    // FIX: Get ALL marks (not just is_finalized=0), and check if already finalized to prevent double-processing
     public function getDailyMarksAggregate($student_id) {
+        // Check if already finalized to prevent double-aggregation
+        $checkFinalized = "SELECT matron_final_submitted, daily_marks_aggregate FROM assessment 
+                           WHERE student_id = :student_id 
+                           AND assessor_id = :matron_id 
+                           AND assessor_type = 'matron' 
+                           AND matron_final_submitted IS NOT NULL";
+        $checkStmt = $this->conn->prepare($checkFinalized);
+        $checkStmt->bindParam(':student_id', $student_id);
+        $checkStmt->bindParam(':matron_id', $this->matron_id);
+        $checkStmt->execute();
+        $alreadyFinalized = $checkStmt->fetch(PDO::FETCH_ASSOC);
+        if ($alreadyFinalized) {
+            return $alreadyFinalized['daily_marks_aggregate'];
+        }
+        
+        // Get ALL daily marks for this student (both finalized and non-finalized counts all records)
         $query = "SELECT AVG(
                     (COALESCE(punctuality, 0) + COALESCE(performance, 0) + COALESCE(behavior, 0)) / 3
                   ) as aggregate
                   FROM daily_marking 
-                  WHERE student_id = :student_id AND is_finalized = 0";
+                  WHERE student_id = :student_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_id', $student_id);
         $stmt->execute();

@@ -167,6 +167,5 @@ if (isset($_POST['delete_site'])) {
             </div>
         </div>
     </div>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>

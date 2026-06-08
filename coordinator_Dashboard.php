@@ -1240,6 +1240,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             filterStudents();
         });
     </script>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>

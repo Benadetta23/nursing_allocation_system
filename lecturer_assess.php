@@ -495,10 +495,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
         <?php if ($assessment_result): ?>
             <div class="assessment-result <?php echo strtolower($assessment_result['status']); ?>">
                 <strong>Assessment Complete!</strong><br>
+                Assessment Date: <strong><?php echo $assessment_result['assessment_date']; ?></strong><br>
                 Matron Score: <?php echo $assessment_result['matron_score']; ?>% (60%)<br>
                 Lecturer Score: <?php echo $assessment_result['lecturer_score']; ?>% (40%)<br>
                 Final Grade: <strong><?php echo $assessment_result['final_grade']; ?>%</strong><br>
                 Status: <strong><?php echo $assessment_result['status']; ?></strong>
+            </div>
+        <?php endif; ?>
+        
+        <?php if ($existingAssessment && !is_null($existingAssessment['lecturer_final_submitted'] ?? null)): ?>
+            <div class="assessment-result pass" style="text-align: center; margin-bottom: 20px;">
+                <strong>✅ Already Assessed</strong><br>
+                Assessment Date: <?php echo $existingAssessment['assessment_date']; ?><br>
+                Final Grade: <?php echo $existingAssessment['final_grade'] ?? '-'; ?>% 
+                (<?php echo $existingAssessment['pass_fail_status'] ?? 'Pending'; ?>)<br><br>
+                <a href="Lecturer_Dashboard.php?tab=assessment&site_id=<?php echo $site_id; ?>" class="btn-back">Back to Dashboard</a>
             </div>
         <?php endif; ?>
         

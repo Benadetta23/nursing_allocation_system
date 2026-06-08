@@ -211,6 +211,5 @@ session_start();
             </form>
         </div>
     </div>
-    <script src="js/page-loader.js"></script>
-</body>
+    </body>
 </html>
