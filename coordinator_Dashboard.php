@@ -636,6 +636,222 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-size: 0.7rem;
         }
         
+        /* ===== SITES SUMMARY STATS ===== */
+        .sites-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .summary-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .summary-number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #4a2f1a;
+        }
+        .summary-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        /* ===== SITES GRID ===== */
+        .sites-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .site-card-modern {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 0;
+            overflow: hidden;
+            border: 1px solid #e8e8e8;
+            transition: 0.3s;
+        }
+        .site-card-modern:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        }
+        .site-card-header {
+            background: white;
+            padding: 16px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+        }
+        .site-card-name {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: #4a2f1a;
+            font-size: 0.95rem;
+        }
+        .util-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-empty { background: #e9ecef; color: #6c757d; }
+
+        .site-card-body {
+            padding: 16px 18px;
+        }
+        .site-detail {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: #555;
+        }
+        .capacity-section {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .capacity-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .capacity-text {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .capacity-bar-modern {
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .capacity-fill-modern {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        .util-good { background: #28a745; }
+        .util-warning { background: #ffc107; }
+        .util-danger { background: #dc3545; }
+        .util-empty { background: #ccc; }
+
+        .site-card-footer {
+            padding: 12px 18px;
+            background: white;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 8px;
+        }
+        .view-students-btn {
+            flex: 1;
+            background: #4a2f1a;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .view-students-btn:hover {
+            background: #654321;
+        }
+        .delete-site-btn {
+            background: #f8d7da;
+            color: #dc3545;
+            border: none;
+            width: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-size: 0.9rem;
+        }
+        .delete-site-btn:hover {
+            background: #dc3545;
+            color: white;
+        }
+
+        /* ===== SITE STUDENTS LIST ===== */
+        .site-students-list {
+            display: none;
+            border-top: 1px solid #eee;
+            background: white;
+        }
+        .site-students-list.visible {
+            display: block;
+        }
+        .students-list-header {
+            padding: 12px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            background: #f8f9fa;
+        }
+        .students-list-title {
+            font-weight: 600;
+            color: #4a2f1a;
+            font-size: 0.85rem;
+        }
+        .students-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+        .students-table th {
+            background: #f0f0f0;
+            color: #4a2f1a;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+        }
+        .students-table td {
+            padding: 10px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .students-table tr:last-child td {
+            border-bottom: none;
+        }
+        .students-table tr:hover {
+            background: #f5f5f5;
+        }
+        .role-tag {
+            background: #c3a343;
+            color: #4a2f1a;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .header { flex-direction: column; text-align: center; }
@@ -645,6 +861,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             .action-buttons { justify-content: center; }
             .data-table th,
             .data-table td { padding: 8px; font-size: 0.8rem; }
+            .sites-grid { grid-template-columns: 1fr; }
+            .sites-summary { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
     <link rel="stylesheet" href="css/theme.css">
@@ -678,74 +896,220 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         <!-- Clinical Sites Section -->
         <div id="sitesSection" class="content-section <?php echo $active_tab == 'sites' ? 'active' : ''; ?>">
+            <!-- Summary Stats -->
+            <?php
+            $allSites = $coordinator->getSites();
+            $allAllocs = $coordinator->getAllocationsWithDaysRemaining();
+            $totalCapacity = array_sum(array_column($allSites, 'max_students'));
+            $totalAssigned = count($allAllocs);
+            $sitesWithStudents = [];
+            foreach ($allAllocs as $alloc) {
+                if (!isset($sitesWithStudents[$alloc['site_id']])) {
+                    $sitesWithStudents[$alloc['site_id']] = 0;
+                }
+                $sitesWithStudents[$alloc['site_id']]++;
+            }
+            ?>
+            <div class="sites-summary">
+                <div class="summary-card">
+                    <div class="summary-icon" style="background:#e8f5e9;">
+                        <i class="fas fa-hospital" style="color:#28a745;font-size:1.5rem;" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <div class="summary-number"><?php echo count($allSites); ?></div>
+                        <div class="summary-label">Clinical Sites</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon" style="background:#e3f2fd;">
+                        <i class="fas fa-users" style="color:#1565c0;font-size:1.5rem;" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <div class="summary-number"><?php echo $totalAssigned; ?> / <?php echo $totalCapacity; ?></div>
+                        <div class="summary-label">Students Placed</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon" style="background:#fff3cd;">
+                        <i class="fas fa-chair" style="color:#856404;font-size:1.5rem;" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <div class="summary-number"><?php echo $totalCapacity - $totalAssigned; ?></div>
+                        <div class="summary-label">Available Slots</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon" style="background:#fce4ec;">
+                        <i class="fas fa-chart-pie" style="color:#d32f2f;font-size:1.5rem;" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <div class="summary-number"><?php echo $totalCapacity > 0 ? round(($totalAssigned / $totalCapacity) * 100) : 0; ?>%</div>
+                        <div class="summary-label">Utilization Rate</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add New Site Form -->
             <div class="card">
-                <h2>Add Clinical Site</h2>
+                <h2 style="display:flex;align-items:center;gap:10px;">
+                    <span style="background:#4a2f1a;color:white;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;">+</span>
+                    Add New Clinical Site
+                </h2>
                 <form method="POST">
                     <div class="form-grid">
                         <div class="form-group">
                             <label>Site Name</label>
-                            <input type="text" name="name" placeholder="Enter site name" required>
+                            <input type="text" name="name" placeholder="e.g. Lilongwe Central Hospital" required>
                         </div>
                         <div class="form-group">
                             <label>Location</label>
-                            <input type="text" name="location" placeholder="Enter location" required>
+                            <input type="text" name="location" placeholder="e.g. Area 33, Lilongwe" required>
                         </div>
                         <div class="form-group">
                             <label>Contact Person</label>
-                            <input type="text" name="contact_person" placeholder="Contact person name">
+                            <input type="text" name="contact_person" placeholder="Full name of contact">
                         </div>
                         <div class="form-group">
                             <label>Contact Phone</label>
-                            <input type="text" name="contact_phone" placeholder="Contact phone number">
+                            <input type="text" name="contact_phone" placeholder="+265 XXX XXX XXX">
                         </div>
                         <div class="form-group">
                             <label>Max Capacity</label>
-                            <input type="number" name="capacity" placeholder="Maximum students" value="10">
+                            <input type="number" name="capacity" placeholder="Max students" value="10" min="1">
                         </div>
                     </div>
-                    <button type="submit" name="add_site" class="btn-primary">Add Site</button>
+                    <button type="submit" name="add_site" class="btn-primary">Add Clinical Site</button>
                 </form>
             </div>
-            
-            <div class="action-bar">
-                <div class="action-buttons">
-                    <button class="btn-view" onclick="toggleView('sitesTable')">View Clinical Sites</button>
+
+            <!-- Sites Dashboard Grid -->
+            <div class="card">
+                <h2 style="display:flex;align-items:center;gap:10px;">
+                    <span style="background:#4a2f1a;color:white;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;">&#9776;</span>
+                    Clinical Sites Overview
+                </h2>
+                
+                <?php if (count($allSites) > 0): ?>
+                <div class="sites-grid">
+                    <?php foreach ($allSites as $site):
+                        $siteId = $site['site_id'];
+                        $current = $sitesWithStudents[$siteId] ?? 0;
+                        $capacity = (int)$site['max_students'];
+                        $utilPercent = $capacity > 0 ? round(($current / $capacity) * 100) : 0;
+                        
+                        if ($utilPercent >= 90) {
+                            $barClass = 'util-danger';
+                            $badgeClass = 'badge-danger';
+                            $utilText = 'Nearly Full';
+                        } elseif ($utilPercent >= 70) {
+                            $barClass = 'util-warning';
+                            $badgeClass = 'badge-warning';
+                            $utilText = 'Almost Full';
+                        } elseif ($utilPercent > 0) {
+                            $barClass = 'util-good';
+                            $badgeClass = 'badge-success';
+                            $utilText = 'Available';
+                        } else {
+                            $barClass = 'util-empty';
+                            $badgeClass = 'badge-empty';
+                            $utilText = 'No Students';
+                        }
+                    ?>
+                    <div class="site-card-modern">
+                        <div class="site-card-header">
+                            <div class="site-card-name">
+                                <i class="fas fa-hospital" aria-hidden="true" style="color:#4a2f1a;"></i>
+                                <span><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></span>
+                            </div>
+                            <span class="util-badge <?php echo $badgeClass; ?>"><?php echo $utilText; ?></span>
+                        </div>
+                        
+                        <div class="site-card-body">
+                            <div class="site-detail">
+                                <i class="fas fa-map-marker-alt" aria-hidden="true" style="color:#888;width:18px;"></i>
+                                <span><?php echo cleanDisplay(htmlspecialchars($site['location'] ?: 'Location not set')); ?></span>
+                            </div>
+                            <div class="site-detail">
+                                <i class="fas fa-user" aria-hidden="true" style="color:#888;width:18px;"></i>
+                                <span><?php echo cleanDisplay(htmlspecialchars($site['contact_person'] ?: 'No contact')); ?></span>
+                            </div>
+                            <div class="site-detail">
+                                <i class="fas fa-phone" aria-hidden="true" style="color:#888;width:18px;"></i>
+                                <span><?php echo cleanDisplay(htmlspecialchars($site['contact_phone'] ?: 'No phone')); ?></span>
+                            </div>
+                            
+                            <div class="capacity-section">
+                                <div class="capacity-info">
+                                    <span class="capacity-text">
+                                        <strong><?php echo $current; ?></strong> / <?php echo $capacity; ?> students
+                                    </span>
+                                    <span class="capacity-text"><?php echo $utilPercent; ?>%</span>
+                                </div>
+                                <div class="capacity-bar-modern">
+                                    <div class="capacity-fill-modern <?php echo $barClass; ?>" style="width:<?php echo $utilPercent; ?>%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="site-card-footer">
+                            <button class="view-students-btn" onclick="toggleSiteStudents(<?php echo $siteId; ?>)">
+                                <i class="fas fa-eye" aria-hidden="true"></i> View Students (<?php echo $current; ?>)
+                            </button>
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="site_id" value="<?php echo $siteId; ?>">
+                                <button type="submit" name="delete_site" class="delete-site-btn" onclick="return confirm('Delete this site? This will also remove all associated data.')">
+                                    <i class="fas fa-trash" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Students List (hidden by default) -->
+                        <div id="site-students-<?php echo $siteId; ?>" class="site-students-list">
+                            <div class="students-list-header">
+                                <span class="students-list-title">Students at this Site</span>
+                                <button onclick="toggleSiteStudents(<?php echo $siteId; ?>)" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#999;">&times;</button>
+                            </div>
+                            <?php
+                            $siteStudents = array_filter($allAllocs, function($a) use ($siteId) {
+                                return $a['site_id'] == $siteId;
+                            });
+                            ?>
+                            <?php if (count($siteStudents) > 0): ?>
+                                <table class="students-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Number</th>
+                                            <th>Role</th>
+                                            <th>Period</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($siteStudents as $stu): ?>
+                                        <tr>
+                                            <td><?php echo cleanDisplay(htmlspecialchars($stu['student_name'] ?? '')); ?></td>
+                                            <td><?php echo cleanDisplay(htmlspecialchars($stu['student_number'] ?? '')); ?></td>
+                                            <td><span class="role-tag"><?php echo cleanDisplay(htmlspecialchars($stu['role'])); ?></span></td>
+                                            <td><?php echo date('M d', strtotime($stu['start_date'])); ?> - <?php echo date('M d', strtotime($stu['end_date'])); ?></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php else: ?>
+                                <div style="text-align:center;padding:20px;color:#999;font-size:0.85rem;">
+                                    No students currently placed at this site.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
-                <span>Click View to see clinical sites list</span>
-            </div>
-            
-            <div id="sitesTable" class="data-table-container">
-                <div class="card" style="padding: 0; overflow: hidden; overflow-x: auto;">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Location</th>
-                                <th>Contact Person</th>
-                                <th>Contact Phone</th>
-                                <th>Max Students</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($coordinator->getSites() as $site): ?>
-                            <tr>
-                                <td><?php echo cleanDisplay(htmlspecialchars($site['name'])); ?></td>
-                                <td><?php echo cleanDisplay(htmlspecialchars($site['location'])); ?></td>
-                                <td><?php echo cleanDisplay(htmlspecialchars($site['contact_person'])); ?></td>
-                                <td><?php echo cleanDisplay(htmlspecialchars($site['contact_phone'])); ?></td>
-                                <td><?php echo $site['max_students']; ?></td>
-                                <td>
-                                    <form method="POST" style="display:inline">
-                                        <input type="hidden" name="site_id" value="<?php echo $site['site_id']; ?>">
-                                        <button type="submit" name="delete_site" class="btn-delete" onclick="return confirm('Delete this site?')">Delete</button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                <?php else: ?>
+                    <div style="text-align:center;padding:40px;color:#999;">
+                        <i class="fas fa-hospital" style="font-size:2rem;margin-bottom:10px;display:block;" aria-hidden="true"></i>
+                        No clinical sites yet. Add your first site above.
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
         
@@ -1223,6 +1587,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             filterStudents();
         }
         
+        function toggleSiteStudents(siteId) {
+            var el = document.getElementById('site-students-' + siteId);
+            if (el.classList.contains('visible')) {
+                el.classList.remove('visible');
+            } else {
+                el.classList.add('visible');
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             var tables = document.querySelectorAll('.data-table-container');
             tables.forEach(function(table) {

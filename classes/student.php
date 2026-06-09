@@ -30,20 +30,21 @@ class Student {
     }
     
     public function getResults() {
-        $query = "SELECT a.*, 
+        $query = "SELECT DISTINCT a.assess_id,
+                         a.assessor_type,
                          CASE 
                              WHEN a.assessor_type = 'lecturer' THEN COALESCE(l.name, 'Lecturer')
                              WHEN a.assessor_type = 'matron' THEN COALESCE(m.name, 'Matron')
                              ELSE 'Unknown'
                          END as assessor_name,
                          c.name as site_name,
-                         a.punctuality_score, a.dressing_score, a.communication_score, a.comments, a.assessment_date,
-                         a.assessor_type
+                         a.punctuality_score, a.dressing_score, a.communication_score, a.comments, a.assessment_date
                   FROM assessment a
                   LEFT JOIN lecturer l ON a.assessor_id = l.lecturer_id AND a.assessor_type = 'lecturer'
                   LEFT JOIN matron m ON a.assessor_id = m.matron_id AND a.assessor_type = 'matron'
                   LEFT JOIN clinical_site c ON a.site_id = c.site_id
                   WHERE a.student_id = :student_id
+                  GROUP BY a.assess_id
                   ORDER BY a.assessment_date DESC";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_id', $this->student_id);

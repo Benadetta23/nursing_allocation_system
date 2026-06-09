@@ -130,14 +130,10 @@ class Lecturer {
     }
     
     public function saveAssessment($student_id, $site_id, $punctuality, $dressing, $communication, $comments) {
-        // Check if matron has finalized assessment
+        // Check if matron has finalized assessment (not required - lecturer can assess regardless)
         $matronStatus = $this->isMatronFinalized($student_id, $site_id);
         
-        if (!$matronStatus['finalized']) {
-            return ['success' => false, 'error' => 'Matron assessment must be completed before lecturer can assess.'];
-        }
-        
-        // Get matron aggregate score
+        // Get matron aggregate score (0 if not finalized)
         $matron_aggregate = $matronStatus['aggregate'];
         
         // FIX: Validate scores - must be between 1 and 5
@@ -282,21 +278,18 @@ class Lecturer {
     public function getStudentsReadyForAssessment($site_id) {
         $query = "SELECT DISTINCT s.student_id, s.name, s.student_number, s.cohort, s.program,
                          a.alloc_id, a.start_date, a.end_date, a.role,
-                         ass.daily_marks_aggregate as matron_aggregate,
-                         ass.matron_final_submitted,
+                         COALESCE((SELECT ass.daily_marks_aggregate FROM assessment ass WHERE ass.student_id = s.student_id AND ass.site_id = :site_id2 AND ass.assessor_type = 'matron' LIMIT 1), 0) as matron_aggregate,
+                         (SELECT ass.matron_final_submitted FROM assessment ass WHERE ass.student_id = s.student_id AND ass.site_id = :site_id3 AND ass.assessor_type = 'matron' LIMIT 1) as matron_finalized,
                          (SELECT COUNT(*) FROM assessment WHERE student_id = s.student_id AND assessor_id = :lecturer_id AND site_id = :site_id AND assessor_type = 'lecturer') as already_assessed
                   FROM allocation a 
                   JOIN student s ON a.student_id = s.student_id
-                  JOIN assessment ass ON s.student_id = ass.student_id
                   WHERE a.site_id = :site_id 
                   AND a.status = 'active'
-                  AND ass.matron_final_submitted IS NOT NULL
-                  AND ass.lecturer_final_submitted IS NULL
-                  AND ass.assessor_type = 'matron'
-                  GROUP BY s.student_id
                   ORDER BY s.name";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':site_id', $site_id);
+        $stmt->bindParam(':site_id2', $site_id);
+        $stmt->bindParam(':site_id3', $site_id);
         $stmt->bindParam(':lecturer_id', $this->lecturer_id);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

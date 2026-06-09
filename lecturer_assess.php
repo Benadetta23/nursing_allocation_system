@@ -50,14 +50,13 @@ if (!$student) {
     exit();
 }
 
-// Check if matron has finalized assessment
+// Check if matron has finalized assessment (not required - lecturer can assess regardless)
 $matronStatus = $lecturer->isMatronFinalized($student_id, $site_id);
 
 if (!$matronStatus['finalized']) {
-    header("Location: Lecturer_Dashboard.php?error=Matron assessment must be completed before lecturer can assess&site_id=" . $site_id);
-    exit();
+    // Matron hasn't finalized, use 0 aggregate and allow lecturer to assess anyway
+    $matronStatus['aggregate'] = 0;
 }
-
 // Get existing assessment if any
 $existingAssessment = $lecturer->getExistingAssessment($student_id, $site_id);
 $is_editing = ($existingAssessment && !is_null($existingAssessment['lecturer_final_submitted'] ?? null));
@@ -606,7 +605,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
                     <div class="matron-label">Matron's Final Aggregate Score (Weight: 60%)</div>
                 </div>
             <?php else: ?>
-                <p class="error-msg">No daily marks recorded for this student. Matron must complete daily assessments before final assessment.</p>
+                <div class="info-box" style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;border-radius:8px;">
+                    <strong>Note:</strong> No daily marks recorded by the matron for this student yet. 
+                    The final grade will be based solely on your lecturer assessment scores.
+                </div>
             <?php endif; ?>
         </div>
         
@@ -614,12 +616,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
         <div class="card">
             <h2><?php echo $is_editing ? 'Update Final Assessment' : 'Final Assessment (Lecturer)'; ?></h2>
             
-            <?php if (count($dailyMarks) == 0): ?>
-                <div class="error-msg">
-                    Cannot perform final assessment because no daily marks have been recorded.<br>
-                    Please ensure the matron has completed daily assessments and submitted the final aggregate.
-                </div>
-            <?php else: ?>
                 <form method="POST">
                     <div class="score-row">
                         <div class="score-item">
@@ -673,7 +669,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
                         </div>
                     <?php endif; ?>
                 </form>
-            <?php endif; ?>
         </div>
         
         <div style="margin-top: 20px; text-align: center;">
