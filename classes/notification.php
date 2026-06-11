@@ -199,18 +199,21 @@ class Notification {
         $emailSent = false;
         
         // Send email if requested
-        if ($notify_by == 'email' || $notify_by == 'both') {
+        if ($notify_by == 'email' || $notify_by == 'both' || $notify_by == 'email_only') {
             $emailSent = $this->sendEmail($student_email, $subject, $message);
         }
         
-        // Save in-app notification (always)
-        $inAppSent = $this->saveNotification(
-            $student_id,
-            'student',
-            'New Clinical Placement',
-            "You have been allocated to {$site_name} from {$start_date} to {$end_date} as {$role}.",
-            null
-        );
+        $inAppSent = false;
+        // Save in-app notification (unless email_only)
+        if ($notify_by !== 'email_only') {
+            $inAppSent = $this->saveNotification(
+                $student_id,
+                'student',
+                'New Clinical Placement',
+                "You have been allocated to {$site_name} from {$start_date} to {$end_date} as {$role}.",
+                null
+            );
+        }
         
         return [
             'email_sent' => $emailSent,

@@ -178,6 +178,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         
         $insertAllocStmt = $conn->prepare("INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) VALUES (:student_id, :site_id, :start_date, :end_date, :role, 'active')");
         
+        $emails_to_send = [];
+        
         foreach ($interleaved_students as $student) {
             $allocated = false;
             $student_year = $student['year_of_study'] ?? 1;
@@ -217,6 +219,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
                                 $site_name, $start_date, $end_date, $required_role, 'in_app'
                             );
                             $notified_students[] = $student_name;
+                            $emails_to_send[] = [
+                                'student_id' => $student['student_id'],
+                                'email' => $student_email,
+                                'name' => $student_name,
+                                'site_name' => $site_name,
+                                'start_date' => $start_date,
+                                'end_date' => $end_date,
+                                'role' => $required_role
+                            ];
                         } catch (Exception $e) {}
                     }
                 }
@@ -224,6 +235,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         }
         
         $conn->commit();
+        
+        // After committing allocations, send deferred emails without blocking the database
+        if (!empty($emails_to_send)) {
+            // Remove time limit in case sending bulk emails takes a while
+            set_time_limit(0);
+            foreach ($emails_to_send as $email_data) {
+                try {
+                    $notification->sendAllocationNotification(
+                        $email_data['student_id'], 
+                        $email_data['email'], 
+                        $email_data['name'],
+                        $email_data['site_name'], 
+                        $email_data['start_date'], 
+                        $email_data['end_date'], 
+                        $email_data['role'], 
+                        'email_only'
+                    );
+                } catch (Exception $e) {
+                    // Ignore email errors to continue sending to others
+                }
+            }
+        }
         
     } catch (Exception $e) {
         $conn->rollBack();
