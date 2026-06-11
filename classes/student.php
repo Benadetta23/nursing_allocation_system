@@ -97,53 +97,52 @@ class Student {
     // ============ FINAL GRADE CALCULATION ============
     
     public function getFinalGrade() {
-        // Check if both assessments exist
-        $checkQuery = "SELECT 
-                        COUNT(CASE WHEN assessor_type = 'matron' THEN 1 END) as matron_count,
-                        COUNT(CASE WHEN assessor_type = 'lecturer' THEN 1 END) as lecturer_count
+        // Check if lecturer assessment exists
+        $checkQuery = "SELECT COUNT(CASE WHEN assessor_type = 'lecturer' THEN 1 END) as lecturer_count
                       FROM assessment
-                      WHERE student_id = :student_id";
+                      WHERE student_id = :student_id AND lecturer_final_submitted IS NOT NULL";
         $checkStmt = $this->conn->prepare($checkQuery);
         $checkStmt->bindParam(':student_id', $this->student_id);
         $checkStmt->execute();
         $counts = $checkStmt->fetch(PDO::FETCH_ASSOC);
         
-        // Only calculate final grade if BOTH assessments exist
-        if ($counts['matron_count'] == 0 || $counts['lecturer_count'] == 0) {
-            return null; // Not ready for final grade
+        // Only show final grade if lecturer has finalized
+        if ($counts['lecturer_count'] == 0) {
+            return null;
         }
         
-        // Calculate final grade from both assessments
-        $query = "SELECT 
-                    AVG((punctuality_score + dressing_score + communication_score) / 3) as final_score,
-                    COUNT(assess_id) as total_assessments
+        // Get the lecturer's final assessment data (same calculation used by Lecturer::saveAssessment)
+        $query = "SELECT final_grade, pass_fail_status, daily_marks_aggregate
                   FROM assessment
-                  WHERE student_id = :student_id";
+                  WHERE student_id = :student_id AND assessor_type = 'lecturer' AND lecturer_final_submitted IS NOT NULL
+                  LIMIT 1";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':student_id', $this->student_id);
         $stmt->execute();
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        if ($result && $result['final_score']) {
-            $score = round($result['final_score'], 1);
+        if ($result && $result['final_grade'] !== null) {
+            $final_grade = round($result['final_grade'], 1);
+            $pass_fail = $result['pass_fail_status'] ?? 'Pending';
+            $matron_agg = round($result['daily_marks_aggregate'] ?? 0, 1);
             
-            // Determine grade based on score
-            if ($score >= 4.5) {
+            // Determine letter grade from the percentage
+            if ($final_grade >= 80) {
                 $grade = 'A+';
                 $grade_description = 'Excellent';
-            } elseif ($score >= 4.0) {
+            } elseif ($final_grade >= 70) {
                 $grade = 'A';
                 $grade_description = 'Very Good';
-            } elseif ($score >= 3.5) {
+            } elseif ($final_grade >= 65) {
                 $grade = 'B+';
                 $grade_description = 'Good';
-            } elseif ($score >= 3.0) {
+            } elseif ($final_grade >= 60) {
                 $grade = 'B';
                 $grade_description = 'Satisfactory';
-            } elseif ($score >= 2.5) {
+            } elseif ($final_grade >= 50) {
                 $grade = 'C';
                 $grade_description = 'Average';
-            } elseif ($score >= 2.0) {
+            } elseif ($final_grade >= 40) {
                 $grade = 'D';
                 $grade_description = 'Below Average';
             } else {
@@ -152,12 +151,13 @@ class Student {
             }
             
             return [
-                'score' => $score,
+                'score' => $final_grade,
                 'grade' => $grade,
                 'grade_description' => $grade_description,
-                'total_assessments' => $result['total_assessments'],
-                'matron_done' => ($counts['matron_count'] > 0),
-                'lecturer_done' => ($counts['lecturer_count'] > 0)
+                'pass_fail_status' => $pass_fail,
+                'matron_aggregate' => $matron_agg,
+                'matron_done' => true,
+                'lecturer_done' => true
             ];
         }
         return null;

@@ -908,6 +908,41 @@ class Coordinator {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    public function getLecturersWithSites() {
+        $query = "SELECT l.lecturer_id, l.name, l.email,
+                         GROUP_CONCAT(DISTINCT cs.name ORDER BY cs.name SEPARATOR ', ') as assigned_sites,
+                         GROUP_CONCAT(DISTINCT cs.site_id ORDER BY cs.name SEPARATOR ',') as site_ids
+                  FROM lecturer l
+                  LEFT JOIN lecturer_site ls ON l.lecturer_id = ls.lecturer_id
+                  LEFT JOIN clinical_site cs ON ls.site_id = cs.site_id
+                  GROUP BY l.lecturer_id
+                  ORDER BY l.name";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    public function getStudentAllocationDetails($student_id) {
+        $query = "SELECT a.*, cs.name as site_name, cs.location,
+                         DATEDIFF(a.end_date, CURDATE()) as days_remaining,
+                         CASE 
+                             WHEN a.status = 'completed' THEN 'Completed'
+                             WHEN a.end_date < CURDATE() THEN 'Overdue'
+                             WHEN DATEDIFF(a.end_date, CURDATE()) <= 7 THEN 'Expiring Soon'
+                             WHEN DATEDIFF(a.end_date, CURDATE()) > 7 THEN 'Active'
+                             ELSE 'Active'
+                         END as placement_status
+                  FROM allocation a
+                  JOIN clinical_site cs ON a.site_id = cs.site_id
+                  WHERE a.student_id = :student_id AND a.status = 'active'
+                  ORDER BY a.start_date DESC
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+    
     public function addLecturer($lecturer_id, $name, $email) {
         // Check if lecturer already exists
         $checkQuery = "SELECT lecturer_id FROM lecturer WHERE lecturer_id = :lecturer_id OR email = :email";

@@ -738,7 +738,7 @@ foreach ($sites as $site) {
     
     <div class="nav-tabs">
         <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Clinical Sites</a>
-        <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Manage Students</a>
+        <a href="coordinator_students.php" class="nav-tab">Manage Users</a>
         <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab active">Auto Allocate</a>
         <a href="coordinator_Dashboard.php?tab=assign" class="nav-tab">Assign Staff</a>

@@ -594,6 +594,20 @@ if ($selected_site_id && $active_tab == 'history') {
         <!-- Daily Marking Tab -->
         <?php if ($active_tab == 'daily_marking'): ?>
         
+        <?php
+        // Weekend check
+        $day_of_week_num = date('N');
+        $is_weekend = ($day_of_week_num >= 6);
+        ?>
+        
+        <?php if ($is_weekend): ?>
+            <div class="warning-msg" style="text-align:center; font-size:1.1rem;">
+                <strong>⚠ Weekend – Daily Marking Not Available</strong><br>
+                Daily student assessments can only be recorded on weekdays (Monday–Friday).<br>
+                Please come back on Monday to continue marking.
+            </div>
+        <?php endif; ?>
+        
         <div class="card">
             <h2>Daily Student Assessment</h2>
             <p style="margin-bottom: 15px; color: #666;">Record daily performance for students at your clinical site.</p>
@@ -635,10 +649,16 @@ if ($selected_site_id && $active_tab == 'history') {
                     </div>
                 </div>
                 
+                <?php if ($is_weekend): ?>
+                    <div class="warning-msg" style="text-align:center; margin-bottom:15px;">
+                        <strong>Marking is disabled on weekends.</strong>
+                    </div>
+                <?php endif; ?>
+                
                 <!-- Mark All Form -->
                 <form method="POST">
                     <input type="hidden" name="site_id" value="<?php echo $selected_site_id; ?>">
-                    <button type="submit" name="mark_all_students" class="btn-mark-all">Mark All Students with Same Scores</button>
+                    <button type="submit" name="mark_all_students" class="btn-mark-all" <?php echo $is_weekend ? 'disabled' : ''; ?>>Mark All Students with Same Scores</button>
                     
                     <div class="students-grid">
                         <?php foreach ($students_at_site as $student): 
@@ -665,6 +685,11 @@ if ($selected_site_id && $active_tab == 'history') {
                             <div style="margin-top: 10px; padding: 10px; background: #f8d7da; border-radius: 8px; border-left: 3px solid #dc3545; color: #721c24; font-size: 0.85rem;">
                                 <strong>Already assessed by another matron</strong><br>
                                 This student is being handled by a different matron. Contact coordinator to reassign.
+                            </div>
+                            <?php elseif ($is_weekend): ?>
+                            <div style="margin-top: 10px; padding: 15px; background: #fff3cd; border-radius: 8px; border-left: 3px solid #ffc107; color: #856404; font-size: 0.9rem; text-align:center;">
+                                <strong>Weekend – Cannot mark today.</strong><br>
+                                Daily assessments are only available Monday–Friday.
                             </div>
                             <?php elseif ($is_finalized): ?>
                             <div class="final-assessment-box" style="margin-top: 10px;">

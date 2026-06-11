@@ -216,6 +216,15 @@ $sites = $coordinator->getSites();
             background: #e9ecef;
             color: #6c757d;
         }
+        .badge-assigned-site {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #155724;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin: 2px;
+        }
         
         .section-header {
             display: flex;
@@ -246,6 +255,105 @@ $sites = $coordinator->getSites();
         
         .add-form { display: none; margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 3px solid #c3a343; }
         .add-form.show { display: block; }
+
+        /* View Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #999;
+        }
+        .modal-close:hover { color: #333; }
+        .modal-box h2 {
+            color: #4a2f1a;
+            margin-bottom: 20px;
+            border-left: 4px solid #c3a343;
+            padding-left: 15px;
+        }
+        .modal-detail-row {
+            display: flex;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .modal-detail-label {
+            width: 140px;
+            font-weight: 600;
+            color: #666;
+            font-size: 0.85rem;
+        }
+        .modal-detail-value {
+            flex: 1;
+            color: #333;
+            font-size: 0.9rem;
+        }
+        .modal-status-active {
+            color: #28a745;
+            font-weight: 600;
+        }
+        .modal-status-overdue {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        .modal-status-expiring {
+            color: #ffc107;
+            font-weight: 600;
+        }
+        .modal-status-completed {
+            color: #6c757d;
+            font-weight: 600;
+        }
+        .modal-no-data {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+        }
+        .btn-view-student {
+            background: #4a2f1a;
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-right: 5px;
+        }
+        .btn-view-student:hover { background: #654321; }
+        .btn-archive-student {
+            background: #ffc107;
+            color: #333;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-right: 5px;
+        }
+        .btn-archive-student:hover { background: #e0a800; }
         
         @media (max-width: 768px) {
             .form-grid { grid-template-columns: 1fr; }
@@ -267,12 +375,11 @@ $sites = $coordinator->getSites();
     
     <div class="nav-tabs">
         <a href="coordinator_Dashboard.php?tab=sites" class="nav-tab">Clinical Sites</a>
-        <a href="coordinator_Dashboard.php?tab=students" class="nav-tab">Manage Students</a>
+        <a href="coordinator_students.php" class="nav-tab active">Manage Users</a>
         <a href="upload_students.php" class="nav-tab">Bulk Upload</a>
         <a href="auto_allocate.php" class="nav-tab">Auto Allocate</a>
         <a href="coordinator_Dashboard.php?tab=assign" class="nav-tab">Assign Staff</a>
         <a href="coordinator_reports.php" class="nav-tab">Reports</a>
-        <a href="coordinator_students.php" class="nav-tab active">All Users</a>
     </div>
     
     <div class="container">
@@ -339,13 +446,15 @@ $sites = $coordinator->getSites();
                                 <th>Email</th>
                                 <th>Cohort</th>
                                 <th>Mode of Entry</th>
-                                <th>Action</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php $students = $coordinator->getStudents(); ?>
                             <?php if (count($students) > 0): ?>
-                                <?php foreach ($students as $student): ?>
+                                <?php foreach ($students as $student): 
+                                    $allocDetails = $coordinator->getStudentAllocationDetails($student['student_id']);
+                                ?>
                                 <tr>
                                     <td><?php echo htmlspecialchars($student['student_number']); ?></td>
                                     <td><?php echo htmlspecialchars($student['name']); ?></td>
@@ -353,6 +462,11 @@ $sites = $coordinator->getSites();
                                     <td><?php echo htmlspecialchars($student['cohort']); ?></td>
                                     <td><?php echo htmlspecialchars($student['mode_of_entry'] ?? 'Generic'); ?></td>
                                     <td>
+                                        <button type="button" class="btn-view-student" onclick="viewStudent(<?php echo $student['student_id']; ?>, '<?php echo htmlspecialchars($student['name'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($student['student_number'], ENT_QUOTES); ?>')">View</button>
+                                        <form method="POST" style="display:inline" onsubmit="return confirm('Archive student <?php echo htmlspecialchars($student['name']); ?>? This will delete the student record.')">
+                                            <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
+                                            <button type="submit" name="delete_student" class="btn-archive-student">Archive</button>
+                                        </form>
                                         <form method="POST" style="display:inline" onsubmit="return confirm('Delete student <?php echo htmlspecialchars($student['name']); ?>?')">
                                             <input type="hidden" name="student_id" value="<?php echo $student['student_id']; ?>">
                                             <button type="submit" name="delete_student" class="btn-sm">Delete</button>
@@ -408,17 +522,25 @@ $sites = $coordinator->getSites();
                                 <th>Lecturer ID</th>
                                 <th>Name</th>
                                 <th>Email</th>
+                                <th>Assigned Sites</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php $lecturers = $coordinator->getLecturers(); ?>
+                            <?php $lecturers = $coordinator->getLecturersWithSites(); ?>
                             <?php if (count($lecturers) > 0): ?>
                                 <?php foreach ($lecturers as $lecturer): ?>
                                 <tr>
                                     <td><?php echo htmlspecialchars($lecturer['lecturer_id']); ?></td>
                                     <td><?php echo htmlspecialchars($lecturer['name']); ?></td>
                                     <td><?php echo htmlspecialchars($lecturer['email']); ?></td>
+                                    <td>
+                                        <?php if (!empty($lecturer['assigned_sites'])): ?>
+                                            <span class="badge-assigned-site"><?php echo htmlspecialchars($lecturer['assigned_sites']); ?></span>
+                                        <?php else: ?>
+                                            <span class="badge-unassigned">Not Assigned</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <form method="POST" style="display:inline" onsubmit="return confirm('Delete lecturer <?php echo htmlspecialchars($lecturer['name']); ?>?')">
                                             <input type="hidden" name="lecturer_id" value="<?php echo htmlspecialchars($lecturer['lecturer_id']); ?>">
@@ -428,7 +550,7 @@ $sites = $coordinator->getSites();
                                 </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <tr><td colspan="4" style="text-align: center; color: #999;">No lecturers registered</td></tr>
+                                <tr><td colspan="5" style="text-align: center; color: #999;">No lecturers registered</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -523,7 +645,18 @@ $sites = $coordinator->getSites();
             </div>
         </div>
     </div>
-    
+
+    <!-- Student View Modal -->
+    <div id="studentViewModal" class="modal-overlay">
+        <div class="modal-box">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <h2>📋 Student Details</h2>
+            <div id="studentModalContent">
+                <div class="modal-no-data">Loading...</div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Tab switching
         function openTab(event, tabId) {
@@ -545,6 +678,72 @@ $sites = $coordinator->getSites();
             form.classList.toggle('show');
         }
         
+        // Student view modal - load data from PHP
+        const studentAllocData = <?php 
+            $students = $coordinator->getStudents();
+            $data = [];
+            foreach ($students as $student) {
+                $alloc = $coordinator->getStudentAllocationDetails($student['student_id']);
+                $data[$student['student_id']] = [
+                    'name' => $student['name'],
+                    'number' => $student['student_number'],
+                    'email' => $student['email'],
+                    'cohort' => $student['cohort'] ?? 'N/A',
+                    'mode' => $student['mode_of_entry'] ?? 'Generic',
+                    'year' => $student['year_of_study'] ?? 'N/A',
+                    'alloc' => $alloc
+                ];
+            }
+            echo json_encode($data);
+        ?>;
+
+        function viewStudent(id, name, number) {
+            const data = studentAllocData[id];
+            const modal = document.getElementById('studentViewModal');
+            const content = document.getElementById('studentModalContent');
+
+            if (!data) {
+                content.innerHTML = '<div class="modal-no-data">Student data not found.</div>';
+                modal.classList.add('show');
+                return;
+            }
+
+            let html = '';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Name</div><div class="modal-detail-value">' + data.name + '</div></div>';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Student Number</div><div class="modal-detail-value">' + data.number + '</div></div>';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Email</div><div class="modal-detail-value">' + data.email + '</div></div>';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Cohort</div><div class="modal-detail-value">' + data.cohort + '</div></div>';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Year of Study</div><div class="modal-detail-value">Year ' + data.year + '</div></div>';
+            html += '<div class="modal-detail-row"><div class="modal-detail-label">Mode of Entry</div><div class="modal-detail-value">' + data.mode + '</div></div>';
+
+            if (data.alloc) {
+                const statusClass = data.alloc.placement_status === 'Active' ? 'modal-status-active' : 
+                                    (data.alloc.placement_status === 'Overdue' ? 'modal-status-overdue' : 
+                                    (data.alloc.placement_status === 'Expiring Soon' ? 'modal-status-expiring' : ''));
+                html += '<h3 style="margin-top:20px;color:#4a2f1a;border-left:4px solid #c3a343;padding-left:15px;">🏥 Current Placement</h3>';
+                html += '<div class="modal-detail-row"><div class="modal-detail-label">Clinical Site</div><div class="modal-detail-value">' + data.alloc.site_name + ' (' + data.alloc.location + ')</div></div>';
+                html += '<div class="modal-detail-row"><div class="modal-detail-label">Role</div><div class="modal-detail-value">' + data.alloc.role + '</div></div>';
+                html += '<div class="modal-detail-row"><div class="modal-detail-label">Start Date</div><div class="modal-detail-value">' + data.alloc.start_date + '</div></div>';
+                html += '<div class="modal-detail-row"><div class="modal-detail-label">End Date</div><div class="modal-detail-value">' + data.alloc.end_date + '</div></div>';
+                html += '<div class="modal-detail-row"><div class="modal-detail-label">Status</div><div class="modal-detail-value"><span class="' + statusClass + '">' + data.alloc.placement_status + '</span> (' + data.alloc.days_remaining + ' days remaining)</div></div>';
+            } else {
+                html += '<h3 style="margin-top:20px;color:#4a2f1a;border-left:4px solid #c3a343;padding-left:15px;">🏥 Current Placement</h3>';
+                html += '<div class="modal-no-data">No active clinical placement.</div>';
+            }
+
+            content.innerHTML = html;
+            modal.classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('studentViewModal').classList.remove('show');
+        }
+
+        // Close modal on overlay click
+        document.getElementById('studentViewModal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
         // Check URL hash for initial tab
         window.addEventListener('load', function() {
             const hash = window.location.hash.replace('#', '');

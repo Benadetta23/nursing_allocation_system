@@ -40,12 +40,13 @@ class Lecturer {
                          a.alloc_id, a.start_date, a.end_date, a.role,
                          (SELECT COUNT(*) FROM assessment WHERE student_id = s.student_id AND assessor_id = :lecturer_id AND site_id = :site_id AND assessor_type = 'lecturer') as already_assessed,
                          (SELECT COUNT(*) FROM assessment WHERE student_id = s.student_id AND assessor_type = 'matron' AND site_id = :site_id) as matron_assessed,
-                         (SELECT matron_final_submitted FROM assessment WHERE student_id = s.student_id AND assessor_type = 'matron' LIMIT 1) as matron_finalized
+                         (SELECT matron_final_submitted FROM assessment WHERE student_id = s.student_id AND assessor_type = 'matron' AND site_id = :site_id LIMIT 1) as matron_finalized,
+                         CASE WHEN a.end_date < CURDATE() THEN 1 ELSE 0 END as allocation_ended
                   FROM allocation a 
                   JOIN student s ON a.student_id = s.student_id
-                  WHERE a.site_id = :site_id AND a.status = 'active'
+                  WHERE a.site_id = :site_id AND (a.status = 'active' OR (a.status = 'active' AND a.end_date < CURDATE()))
                   GROUP BY s.student_id
-                  ORDER BY s.name";
+                  ORDER BY a.end_date DESC, s.name";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':site_id', $site_id);
         $stmt->bindParam(':lecturer_id', $this->lecturer_id);
@@ -129,12 +130,37 @@ class Lecturer {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    // Get matron's initial assessment scores for ended allocations
+    public function getMatronInitialAssessment($student_id, $site_id) {
+        $query = "SELECT punctuality_score, dressing_score, communication_score 
+                  FROM assessment 
+                  WHERE student_id = :student_id 
+                  AND site_id = :site_id 
+                  AND assessor_type = 'matron' 
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':student_id', $student_id);
+        $stmt->bindParam(':site_id', $site_id);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
     public function saveAssessment($student_id, $site_id, $punctuality, $dressing, $communication, $comments) {
-        // Check if matron has finalized assessment (not required - lecturer can assess regardless)
+        // Check if matron has finalized assessment
         $matronStatus = $this->isMatronFinalized($student_id, $site_id);
         
-        // Get matron aggregate score (0 if not finalized)
+        // Get matron aggregate score
         $matron_aggregate = $matronStatus['aggregate'];
+        
+        // If no daily marks aggregate exists, try using matron's initial assessment
+        if ($matron_aggregate == 0) {
+            $initialAssessment = $this->getMatronInitialAssessment($student_id, $site_id);
+            if ($initialAssessment) {
+                // Convert matron's initial scores (1-5 scale) to percentage
+                $initial_raw = ($initialAssessment['punctuality_score'] + $initialAssessment['dressing_score'] + $initialAssessment['communication_score']) / 3;
+                $matron_aggregate = round(($initial_raw / 5) * 100, 1);
+            }
+        }
         
         // FIX: Validate scores - must be between 1 and 5
         $score_valid = ($punctuality >= 1 && $punctuality <= 5) &&
@@ -171,8 +197,8 @@ class Lecturer {
         $lecturer_score_raw = ($punctuality + $dressing + $communication) / 3;
         $lecturer_score_percent = round(($lecturer_score_raw / 5) * 100, 1);
         
-        // Weighted final grade (60% matron aggregate, 40% lecturer score)
-        $final_grade = round(($matron_aggregate * 0.6) + ($lecturer_score_percent * 0.4), 1);
+        // Weighted final grade (50% matron aggregate, 50% lecturer score)
+        $final_grade = round(($matron_aggregate * 0.5) + ($lecturer_score_percent * 0.5), 1);
         
         // Determine pass/fail based on grade thresholds
         $thresholdQuery = "SELECT status FROM grade_thresholds 
@@ -280,12 +306,13 @@ class Lecturer {
                          a.alloc_id, a.start_date, a.end_date, a.role,
                          COALESCE((SELECT ass.daily_marks_aggregate FROM assessment ass WHERE ass.student_id = s.student_id AND ass.site_id = :site_id2 AND ass.assessor_type = 'matron' LIMIT 1), 0) as matron_aggregate,
                          (SELECT ass.matron_final_submitted FROM assessment ass WHERE ass.student_id = s.student_id AND ass.site_id = :site_id3 AND ass.assessor_type = 'matron' LIMIT 1) as matron_finalized,
-                         (SELECT COUNT(*) FROM assessment WHERE student_id = s.student_id AND assessor_id = :lecturer_id AND site_id = :site_id AND assessor_type = 'lecturer') as already_assessed
+                         (SELECT COUNT(*) FROM assessment WHERE student_id = s.student_id AND assessor_id = :lecturer_id AND site_id = :site_id AND assessor_type = 'lecturer') as already_assessed,
+                         CASE WHEN a.end_date < CURDATE() THEN 1 ELSE 0 END as allocation_ended
                   FROM allocation a 
                   JOIN student s ON a.student_id = s.student_id
                   WHERE a.site_id = :site_id 
-                  AND a.status = 'active'
-                  ORDER BY s.name";
+                  AND (a.status = 'active' OR (a.status = 'active' AND a.end_date < CURDATE()))
+                  ORDER BY a.end_date DESC, s.name";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':site_id', $site_id);
         $stmt->bindParam(':site_id2', $site_id);

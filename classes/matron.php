@@ -143,6 +143,27 @@ class Matron {
     public function saveOrUpdateDailyMark($student_id, $site_id, $attendance, $punctuality, $performance, $behavior, $comments) {
         $marking_date = date('Y-m-d');
         
+        // Prevent marking on weekends
+        $day_of_week = date('N'); // 1=Monday, 7=Sunday
+        if ($day_of_week >= 6) {
+            return false;
+        }
+        
+        // Prevent marking if the student's allocation is overdue (end date has passed)
+        $allocCheck = "SELECT COUNT(*) as active FROM allocation 
+                       WHERE student_id = :student_id 
+                       AND site_id = :site_id 
+                       AND status = 'active'
+                       AND end_date >= CURDATE()";
+        $allocStmt = $this->conn->prepare($allocCheck);
+        $allocStmt->bindParam(':student_id', $student_id);
+        $allocStmt->bindParam(':site_id', $site_id);
+        $allocStmt->execute();
+        $allocResult = $allocStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$allocResult || $allocResult['active'] == 0) {
+            return false; // Allocation has ended, cannot mark
+        }
+        
         // FIX: Check if another matron has already assessed this student (one-matron rule)
         $otherMatronCheck = "SELECT assessor_id FROM assessment 
                              WHERE student_id = :student_id 

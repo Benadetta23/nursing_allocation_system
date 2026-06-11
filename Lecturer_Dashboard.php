@@ -77,19 +77,22 @@ if ($selected_site_id) {
     }
     
     // Calculate pending and completed counts
-    foreach ($studentsAtSite as $student) {
-        $matronDone = ($student['matron_assessed'] > 0);
-        $matronFinalized = !is_null($student['matron_finalized'] ?? null);
-        $lecturerDone = ($student['already_assessed'] > 0);
-        
-        if ($matronFinalized && !$lecturerDone) {
-            $readyForAssessmentCount++;
-        } elseif ($matronDone && !$lecturerDone) {
-            $pendingCount++;
-        } elseif ($lecturerDone) {
-            $completedCount++;
+        foreach ($studentsAtSite as $student) {
+            $matronDone = ($student['matron_assessed'] > 0);
+            $matronFinalized = !is_null($student['matron_finalized'] ?? null);
+            $lecturerDone = ($student['already_assessed'] > 0);
+            $allocationEnded = ($student['allocation_ended'] == 1);
+            
+            if ($lecturerDone) {
+                $completedCount++;
+            } elseif ($matronFinalized && !$lecturerDone) {
+                $readyForAssessmentCount++;
+            } elseif ($allocationEnded && $matronDone && !$lecturerDone) {
+                $readyForAssessmentCount++;
+            } elseif ($matronDone && !$lecturerDone) {
+                $pendingCount++;
+            }
         }
-    }
     
     // Merge daily marked students info
     $dailyMarkedMap = [];
@@ -979,10 +982,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                 <p>ID: <?php echo htmlspecialchars($student['student_number']); ?></p>
                                 <p>Cohort: <?php echo htmlspecialchars($student['cohort']); ?></p>
                                 <p>Role: <?php echo htmlspecialchars($student['role']); ?></p>
-                                <?php
+                            <?php
                                 $matronDone = ($student['matron_assessed'] > 0);
                                 $matronFinalized = !is_null($student['matron_finalized'] ?? null);
                                 $lecturerDone = ($student['already_assessed'] > 0);
+                                $allocationEnded = ($student['allocation_ended'] == 1);
                                 
                                 if ($lecturerDone):
                                 ?>
@@ -993,7 +997,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                         data-viewonly="1">
                                         View Assessment
                                     </button>
-                                <?php elseif ($student['ready_for_assessment']): ?>
+                                <?php elseif ($allocationEnded && $matronDone && !$lecturerDone): ?>
+                                    <span class="badge-primary">Ready for Assessment</span>
+                                    <span class="badge-info" style="margin-top:5px;">Allocation Ended - Using Matron's Assessment</span>
+                                    <button class="btn-primary assess-btn" 
+                                        data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
+                                        data-siteid="<?php echo $selected_site_id; ?>">
+                                        Start Final Assessment
+                                    </button>
+                                <?php elseif ($matronFinalized && !$lecturerDone): ?>
                                     <span class="badge-primary">Ready for Assessment</span>
                                     <span class="badge-success" style="margin-top: 5px;">Matron Finalized</span>
                                     <?php if (isset($student['daily_mark_count']) && $student['daily_mark_count'] > 0): ?>
@@ -1006,19 +1018,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                                         data-siteid="<?php echo $selected_site_id; ?>">
                                         Start Final Assessment
                                     </button>
-                                <?php elseif ($matronFinalized && !$lecturerDone): ?>
-                                    <span class="badge-primary">Ready for Assessment</span>
-                                    <button class="btn-primary assess-btn" 
-                                        data-student='<?php echo htmlspecialchars(json_encode($student), ENT_QUOTES, 'UTF-8'); ?>' 
-                                        data-siteid="<?php echo $selected_site_id; ?>">
-                                        Start Final Assessment
-                                    </button>
-                                <?php elseif ($matronDone && !$lecturerDone): ?>
+                                <?php elseif ($matronDone && !$lecturerDone && !$allocationEnded): ?>
                                     <span class="badge-warning">Awaiting Matron Finalization</span>
                                     <button class="btn-secondary" disabled>Matron Assessment in Progress</button>
-                                <?php elseif (!$matronDone): ?>
+                                <?php elseif (!$matronDone && !$allocationEnded): ?>
                                     <span class="badge-secondary">Awaiting Matron Initial Assessment</span>
                                     <button class="btn-secondary" disabled>Not Available</button>
+                                <?php elseif ($allocationEnded && !$matronDone): ?>
+                                    <span class="badge-warning">Allocation Ended - No Matron Data</span>
+                                    <button class="btn-secondary" disabled>Cannot Assess</button>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
@@ -1151,7 +1159,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                     </div>
                     
                     <div id="gradePreview" class="grade-preview">
-                        Final Grade Calculation: (Matron Score × 60%) + (Lecturer Score × 40%) = <span id="previewGrade">-</span>%
+                        Final Grade Calculation: (Matron Score × 50%) + (Lecturer Score × 50%) = <span id="previewGrade">-</span>%
                     </div>
                     
                     <div class="form-group">
@@ -1269,7 +1277,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
                         });
                         html += '</table>';
                         contentDiv.innerHTML = html;
-                        aggregateDiv.innerHTML = 'Matron Aggregate Score: <strong>' + data.aggregate + '%</strong> (Weight: 60%)';
+                        aggregateDiv.innerHTML = 'Matron Aggregate Score: <strong>' + data.aggregate + '%</strong> (Weight: 50%)';
                         window.matronAggregate = data.aggregate;
                     } else {
                         previewDiv.style.display = 'none';
@@ -1294,7 +1302,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             }
             
             const matronScore = window.matronAggregate || 0;
-            const finalGrade = (matronScore * 0.6) + (lecturerScore * 0.4);
+            const finalGrade = (matronScore * 0.5) + (lecturerScore * 0.5);
             
             document.getElementById('previewGrade').textContent = finalGrade.toFixed(1);
         }

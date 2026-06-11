@@ -495,8 +495,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
             <div class="assessment-result <?php echo strtolower($assessment_result['status']); ?>">
                 <strong>Assessment Complete!</strong><br>
                 Assessment Date: <strong><?php echo $assessment_result['assessment_date']; ?></strong><br>
-                Matron Score: <?php echo $assessment_result['matron_score']; ?>% (60%)<br>
-                Lecturer Score: <?php echo $assessment_result['lecturer_score']; ?>% (40%)<br>
+                Matron Score: <?php echo $assessment_result['matron_score']; ?>% (50%)<br>
+                Lecturer Score: <?php echo $assessment_result['lecturer_score']; ?>% (50%)<br>
                 Final Grade: <strong><?php echo $assessment_result['final_grade']; ?>%</strong><br>
                 Status: <strong><?php echo $assessment_result['status']; ?></strong>
             </div>
@@ -602,7 +602,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
                 
                 <div class="matron-aggregate-box">
                     <div class="matron-score"><?php echo $matronStatus['aggregate']; ?>%</div>
-                    <div class="matron-label">Matron's Final Aggregate Score (Weight: 60%)</div>
+                    <div class="matron-label">Matron's Final Aggregate Score (Weight: 50%)</div>
                 </div>
             <?php else: ?>
                 <div class="info-box" style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;border-radius:8px;">
@@ -643,7 +643,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
                     
                     <div class="grade-preview" id="gradePreview">
                         Final Grade Calculation: 
-                        (<?php echo $matronStatus['aggregate']; ?>% × 60%) + (Lecturer Score × 40%) = 
+                        (<?php echo $matronStatus['aggregate']; ?>% × 50%) + (Lecturer Score × 50%) = 
                         <span id="previewGrade">-</span>%
                     </div>
                     
@@ -689,7 +689,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_assessment'])) 
             // Convert from 1-5 scale to percentage
             lecturerScore = (lecturerScore / 5) * 100;
             
-            const finalGrade = (matronAggregate * 0.6) + (lecturerScore * 0.4);
+            const finalGrade = (matronAggregate * 0.5) + (lecturerScore * 0.5);
             document.getElementById('previewGrade').textContent = finalGrade.toFixed(1);
         }
         
