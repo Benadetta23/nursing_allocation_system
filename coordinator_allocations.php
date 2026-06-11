@@ -128,11 +128,28 @@ foreach ($coordinator->getStudents() as $student) {
     <div class="container">
         <a href="coordinator_dashboard.php" class="btn-back">← Back to Dashboard</a>
         
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
         <?php if ($message): ?>
-            <div class="message success"><?php echo $message; ?></div>
+            <script>
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: '<?php echo addslashes(str_replace(["✅ ", "❌ "], "", $message)); ?>',
+                    confirmButtonColor: '#1a2a6c',
+                    timer: 3000,
+                    timerProgressBar: true
+                });
+            </script>
         <?php endif; ?>
         <?php if ($error): ?>
-            <div class="message error"><?php echo $error; ?></div>
+            <script>
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Allocation Failed',
+                    text: '<?php echo addslashes(str_replace(["✅ ", "❌ "], "", $error)); ?>',
+                    confirmButtonColor: '#dc3545'
+                });
+            </script>
         <?php endif; ?>
         
         <div class="card">

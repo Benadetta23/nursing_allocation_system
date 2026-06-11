@@ -8,6 +8,7 @@ class Coordinator {
     public function __construct() {
         $database = new Database();
         $this->conn = $database->getConnection();
+        $this->autoTerminateExpiredAllocations();
     }
     
     // ============ SITE OPERATIONS ============
@@ -1032,6 +1033,16 @@ class Coordinator {
         $stmt->bindParam(':date_to', $date_to);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function autoTerminateExpiredAllocations() {
+        try {
+            $query = "UPDATE allocation SET status = 'completed' WHERE status = 'active' AND end_date < CURDATE()";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute();
+        } catch (Exception $e) {
+            // Silently fail so as not to interrupt other operations
+        }
     }
 }
 ?>
