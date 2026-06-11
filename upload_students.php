@@ -344,22 +344,41 @@ if (isset($_GET['download_template'])) {
     </div>
     
     <div class="container">
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
         <?php if ($message): ?>
-            <div class="success-msg"><?php echo htmlspecialchars($message); ?></div>
+            <script>
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: '<?php echo addslashes($message); ?>',
+                    confirmButtonColor: '#4a2f1a',
+                    timer: 3000,
+                    timerProgressBar: true
+                });
+            </script>
         <?php endif; ?>
-        <?php if ($error): ?>
-            <div class="error-msg"><?php echo htmlspecialchars($error); ?></div>
-        <?php endif; ?>
-        
-        <?php if (!empty($upload_errors)): ?>
-            <div class="error-msg">
-                <strong>Errors encountered:</strong>
-                <ul class="error-list">
-                    <?php foreach ($upload_errors as $err): ?>
-                        <li><?php echo htmlspecialchars($err); ?></li>
-                    <?php endforeach; ?>
-                </ul>
-            </div>
+        <?php if ($error || !empty($upload_errors)): ?>
+            <script>
+                <?php 
+                $htmlError = "";
+                if ($error) {
+                    $htmlError .= "<p>" . addslashes(htmlspecialchars($error)) . "</p>";
+                }
+                if (!empty($upload_errors)) {
+                    $htmlError .= "<div style=\"text-align: left; margin-top: 10px;\"><strong>Errors encountered:</strong><ul style=\"margin-left: 20px; font-size: 14px; margin-top: 5px;\">";
+                    foreach ($upload_errors as $err) {
+                        $htmlError .= "<li>" . addslashes(htmlspecialchars($err)) . "</li>";
+                    }
+                    $htmlError .= "</ul></div>";
+                }
+                ?>
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Upload Issue',
+                    html: '<?php echo $htmlError; ?>',
+                    confirmButtonColor: '#dc3545'
+                });
+            </script>
         <?php endif; ?>
         
         <div class="card">
