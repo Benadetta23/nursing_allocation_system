@@ -177,18 +177,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         }
         
         $insertAllocStmt = $conn->prepare("INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) VALUES (:student_id, :site_id, :start_date, :end_date, :role, 'active')");
-        $checkAllocStmt = $conn->prepare("SELECT alloc_id FROM allocation WHERE student_id = :student_id AND status = 'active'");
         
         foreach ($interleaved_students as $student) {
             $allocated = false;
             $student_year = $student['year_of_study'] ?? 1;
             $required_role = getRoleForStudent($student_year, $role_mode, $default_role);
-            
-            $checkAllocStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
-            $checkAllocStmt->execute();
-            if ($checkAllocStmt->fetch()) {
-                continue;
-            }
             
             $eligible_sites = [];
             foreach ($current_site_load as $site_id => $site_data) {
@@ -215,21 +208,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
                     
                     if ($send_notifications) {
                         try {
-                            $studentEmailStmt = $conn->prepare("SELECT email, name FROM student WHERE student_id = :student_id");
-                            $studentEmailStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
-                            $studentEmailStmt->execute();
-                            $studentData = $studentEmailStmt->fetch(PDO::FETCH_ASSOC);
-                            if ($studentData) {
-                                $siteNameStmt = $conn->prepare("SELECT name FROM clinical_site WHERE site_id = :site_id");
-                                $siteNameStmt->bindParam(':site_id', $best_site_id, PDO::PARAM_INT);
-                                $siteNameStmt->execute();
-                                $siteData = $siteNameStmt->fetch(PDO::FETCH_ASSOC);
-                                $notification->sendAllocationNotification(
-                                    $student['student_id'], $studentData['email'], $studentData['name'],
-                                    $siteData['name'], $start_date, $end_date, $required_role, 'both'
-                                );
-                                $notified_students[] = $studentData['name'];
-                            }
+                            $student_email = $student['email'] ?? '';
+                            $student_name = $student['name'] ?? 'Student';
+                            $site_name = $current_site_load[$best_site_id]['name'];
+                            
+                            $notification->sendAllocationNotification(
+                                $student['student_id'], $student_email, $student_name,
+                                $site_name, $start_date, $end_date, $required_role, 'in_app'
+                            );
+                            $notified_students[] = $student_name;
                         } catch (Exception $e) {}
                     }
                 }
