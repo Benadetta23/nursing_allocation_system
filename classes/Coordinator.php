@@ -128,37 +128,40 @@ class Coordinator {
         $stmt->bindParam(':mode_of_entry', $mode_of_entry);
         $stmt->bindParam(':coordinator_id', $coordinator_id);
         
-        if ($stmt->execute()) {
-            $student_id = $this->conn->lastInsertId();
-            
-            // If first year student, automatically assign General Nursing role
-            if ($year_of_study == 1 || $year_of_study === '1') {
-                // Get the first available clinical site
-                $siteQuery = "SELECT site_id FROM clinical_site LIMIT 1";
-                $siteStmt = $this->conn->prepare($siteQuery);
-                $siteStmt->execute();
-                $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            if ($stmt->execute()) {
+                $student_id = $this->conn->lastInsertId();
                 
-                if ($site) {
-                    // Set allocation dates: start today, end in 3 months
-                    $start_date = date('Y-m-d');
-                    $end_date = date('Y-m-d', strtotime('+3 months'));
+                // If first year student, automatically assign General Nursing role
+                if ($year_of_study == 1 || $year_of_study === '1') {
+                    // Get the first available clinical site
+                    $siteQuery = "SELECT site_id FROM clinical_site LIMIT 1";
+                    $siteStmt = $this->conn->prepare($siteQuery);
+                    $siteStmt->execute();
+                    $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
                     
-                    // Create default allocation with General Nursing role
-                    $allocQuery = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) 
-                                   VALUES (:student_id, :site_id, :start_date, :end_date, 'General Nursing', 'active')";
-                    $allocStmt = $this->conn->prepare($allocQuery);
-                    $allocStmt->bindParam(':student_id', $student_id);
-                    $allocStmt->bindParam(':site_id', $site['site_id']);
-                    $allocStmt->bindParam(':start_date', $start_date);
-                    $allocStmt->bindParam(':end_date', $end_date);
-                    $allocStmt->execute();
+                    if ($site) {
+                        // Set allocation dates: start today, end in 3 months
+                        $start_date = date('Y-m-d');
+                        $end_date = date('Y-m-d', strtotime('+3 months'));
+                        
+                        // Create default allocation with General Nursing role
+                        $allocQuery = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) 
+                                       VALUES (:student_id, :site_id, :start_date, :end_date, 'General Nursing', 'active')";
+                        $allocStmt = $this->conn->prepare($allocQuery);
+                        $allocStmt->bindParam(':student_id', $student_id);
+                        $allocStmt->bindParam(':site_id', $site['site_id']);
+                        $allocStmt->bindParam(':start_date', $start_date);
+                        $allocStmt->bindParam(':end_date', $end_date);
+                        $allocStmt->execute();
+                    }
                 }
+                
+                return true;
             }
-            
-            return true;
+        } catch (PDOException $e) {
+            return false;
         }
-        
         return false;
     }
     
