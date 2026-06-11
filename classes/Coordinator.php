@@ -282,13 +282,13 @@ class Coordinator {
                 $allocation_id
             );
             
+            $this->conn->commit();
+            
             // Send email if requested
             $emailSent = false;
             if ($notify_by == 'email' || $notify_by == 'both') {
                 $emailSent = $notification->sendEmail($student['email'], $subject, $message);
             }
-            
-            $this->conn->commit();
             
             return [
                 'success' => true, 
@@ -387,13 +387,13 @@ class Coordinator {
                 $alloc_id
             );
             
+            $this->conn->commit();
+            
             // Send email if requested
             $emailSent = false;
             if ($notify_by == 'email' || $notify_by == 'both') {
                 $emailSent = $notification->sendEmail($allocation['email'], $subject, $message);
             }
-            
-            $this->conn->commit();
             
             return [
                 'success' => true, 
@@ -415,6 +415,9 @@ class Coordinator {
         $success_count = 0;
         $failed_count = 0;
         $results = [];
+        $emails_to_send = [];
+        
+        $loop_notify = ($notify_by == 'email' || $notify_by == 'both') ? 'in_app' : $notify_by;
         
         foreach ($allocations as $allocation) {
             $result = $this->allocateStudentWithNotification(
@@ -423,15 +426,51 @@ class Coordinator {
                 $allocation['start_date'],
                 $allocation['end_date'],
                 $allocation['role'],
-                $notify_by
+                $loop_notify
             );
             
             if ($result['success']) {
                 $success_count++;
+                if ($notify_by == 'email' || $notify_by == 'both') {
+                    $emails_to_send[] = $allocation;
+                }
             } else {
                 $failed_count++;
             }
             $results[] = $result;
+        }
+        
+        // After loop, send emails
+        if (!empty($emails_to_send)) {
+            set_time_limit(0);
+            $notification = new Notification($this->conn);
+            foreach ($emails_to_send as $alloc) {
+                // Get student and site details
+                $studentStmt = $this->conn->prepare("SELECT email, name FROM student WHERE student_id = :student_id");
+                $studentStmt->bindParam(':student_id', $alloc['student_id']);
+                $studentStmt->execute();
+                $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
+                
+                $siteStmt = $this->conn->prepare("SELECT name FROM clinical_site WHERE site_id = :site_id");
+                $siteStmt->bindParam(':site_id', $alloc['site_id']);
+                $siteStmt->execute();
+                $site = $siteStmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($student && $site) {
+                    try {
+                        $notification->sendAllocationNotification(
+                            $alloc['student_id'],
+                            $student['email'],
+                            $student['name'],
+                            $site['name'],
+                            $alloc['start_date'],
+                            $alloc['end_date'],
+                            $alloc['role'],
+                            'email_only'
+                        );
+                    } catch (Exception $e) {}
+                }
+            }
         }
         
         return [
