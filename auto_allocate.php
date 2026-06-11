@@ -106,8 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
     $allocation_count = 0;
     $notified_students = [];
     
-    $start_date = $_POST['start_date'];
-    $end_date = $_POST['end_date'];
+    $start_dates_post = $_POST['start_date'] ?? [];
+    $end_dates_post = $_POST['end_date'] ?? [];
     $role_mode = $_POST['role_mode'] ?? 'auto';
     $default_role = $_POST['default_role'] ?? 'General Nursing';
     $send_notifications = isset($_POST['send_notifications']) ? true : false;
@@ -183,6 +183,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         foreach ($interleaved_students as $student) {
             $allocated = false;
             $student_year = $student['year_of_study'] ?? 1;
+            
+            $start_date = $start_dates_post[$student_year] ?? '';
+            $end_date = $end_dates_post[$student_year] ?? '';
+            
+            if (empty($start_date) || empty($end_date)) {
+                continue; // Skip student if dates are not provided for their year
+            }
+            
             $required_role = getRoleForStudent($student_year, $role_mode, $default_role);
             
             $eligible_sites = [];
@@ -815,14 +823,25 @@ foreach ($sites as $site) {
                 <div class="success-msg" style="text-align:center;background:#fff3cd;color:#856404;border-left-color:#ffc107;">No available slots. Please increase site capacity or add more clinical sites.</div>
             <?php else: ?>
                 <form method="POST">
-                    <div class="form-group">
-                        <label>Placement Start Date</label>
-                        <input type="date" name="start_date" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Placement End Date</label>
-                        <input type="date" name="end_date" required>
-                    </div>
+                    <p style="margin-bottom:15px; color:#666;">Set specific placement dates for each Year. Leave a year blank to skip allocating those students.</p>
+                    
+                    <?php foreach ([1, 2, 3, 4] as $y): ?>
+                        <?php if ($unallocated_by_year[$y] > 0): ?>
+                            <div class="form-group" style="background:#f8f9fa; padding:15px; border-radius:8px; border-left:4px solid #1a2a6c; margin-bottom:15px;">
+                                <label style="color:#1a2a6c; font-weight:bold; font-size:16px; display:block; margin-bottom:10px;">Year <?php echo $y; ?> Dates (<?php echo $unallocated_by_year[$y]; ?> students)</label>
+                                <div style="display:flex; gap:15px;">
+                                    <div style="flex:1;">
+                                        <label style="font-size:12px; margin-bottom:4px; font-weight:normal; color:#555;">Start Date</label>
+                                        <input type="date" name="start_date[<?php echo $y; ?>]" id="start_date_<?php echo $y; ?>" style="padding:8px; width:100%;">
+                                    </div>
+                                    <div style="flex:1;">
+                                        <label style="font-size:12px; margin-bottom:4px; font-weight:normal; color:#555;">End Date</label>
+                                        <input type="date" name="end_date[<?php echo $y; ?>]" id="end_date_<?php echo $y; ?>" style="padding:8px; width:100%;">
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     
                     <div class="form-group">
                         <label>Role Assignment Mode</label>
@@ -887,18 +906,20 @@ foreach ($sites as $site) {
         // Hide all site details initially
         document.querySelectorAll('.students-list').forEach(el => el.style.display = 'none');
         
-        // Set default dates
-        const startInput = document.querySelector('input[name="start_date"]');
-        const endInput = document.querySelector('input[name="end_date"]');
-        if (startInput && !startInput.value) {
-            const nextMon = new Date();
-            nextMon.setDate(nextMon.getDate() + ((1 - nextMon.getDay() + 7) % 7 || 7));
-            startInput.value = nextMon.toISOString().split('T')[0];
-        }
-        if (endInput && !endInput.value && startInput.value) {
-            const end = new Date(startInput.value);
-            end.setDate(end.getDate() + 84);
-            endInput.value = end.toISOString().split('T')[0];
+        // Set default dates for each year
+        for(let i=1; i<=4; i++) {
+            const startInput = document.getElementById('start_date_' + i);
+            const endInput = document.getElementById('end_date_' + i);
+            if (startInput && !startInput.value) {
+                const nextMon = new Date();
+                nextMon.setDate(nextMon.getDate() + ((1 - nextMon.getDay() + 7) % 7 || 7));
+                startInput.value = nextMon.toISOString().split('T')[0];
+            }
+            if (endInput && !endInput.value && startInput && startInput.value) {
+                const end = new Date(startInput.value);
+                end.setDate(end.getDate() + 84);
+                endInput.value = end.toISOString().split('T')[0];
+            }
         }
     </script>
     <?php if (isset($_GET['dispatch']) && $_GET['dispatch'] == 1): ?>
