@@ -116,6 +116,32 @@ class Notification {
         return $stmt->execute();
     }
     
+    // Bulk save in-app notifications
+    public function bulkSaveNotifications($notifications) {
+        if (empty($notifications)) return true;
+        
+        $chunks = array_chunk($notifications, 200);
+        foreach ($chunks as $chunk) {
+            $values = [];
+            $params = [];
+            $i = 0;
+            foreach ($chunk as $note) {
+                $values[] = "(:user_id_$i, :user_type_$i, :title_$i, :message_$i, :related_id_$i, NOW(), 0)";
+                $params[":user_id_$i"] = $note['user_id'];
+                $params[":user_type_$i"] = $note['user_type'];
+                $params[":title_$i"] = $note['title'];
+                $params[":message_$i"] = $note['message'];
+                $params[":related_id_$i"] = $note['related_id'] ?? null;
+                $i++;
+            }
+            
+            $query = "INSERT INTO notifications (user_id, user_type, title, message, related_id, created_at, is_read) VALUES " . implode(', ', $values);
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute($params);
+        }
+        return true;
+    }
+    
     // Get unread notifications for a user
     public function getUnreadNotifications($user_id, $user_type) {
         $query = "SELECT * FROM notifications 

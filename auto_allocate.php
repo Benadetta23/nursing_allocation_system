@@ -176,8 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
             return $best_site_id;
         }
         
-        $insertAllocStmt = $conn->prepare("INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) VALUES (:student_id, :site_id, :start_date, :end_date, :role, 'active')");
-        
+        $allocs_to_insert = [];
+        $in_app_notifications = [];
         $emails_to_send = [];
         
         foreach ($interleaved_students as $student) {
@@ -195,67 +195,77 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
             $best_site_id = pickBestSite($eligible_sites, $current_site_load);
             
             if ($best_site_id !== null) {
-                $insertAllocStmt->bindParam(':student_id', $student['student_id'], PDO::PARAM_INT);
-                $insertAllocStmt->bindParam(':site_id', $best_site_id, PDO::PARAM_INT);
-                $insertAllocStmt->bindParam(':start_date', $start_date);
-                $insertAllocStmt->bindParam(':end_date', $end_date);
-                $insertAllocStmt->bindParam(':role', $required_role);
-                $insertResult = $insertAllocStmt->execute();
+                $allocs_to_insert[] = [
+                    'student_id' => $student['student_id'],
+                    'site_id' => $best_site_id,
+                    'start_date' => $start_date,
+                    'end_date' => $end_date,
+                    'role' => $required_role
+                ];
                 
-                if ($insertResult) {
-                    $allocation_count++;
-                    $current_site_load[$best_site_id]['current']++;
-                    $current_site_load[$best_site_id]['available']--;
-                    $allocated = true;
+                $allocation_count++;
+                $current_site_load[$best_site_id]['current']++;
+                $current_site_load[$best_site_id]['available']--;
+                $allocated = true;
+                
+                if ($send_notifications) {
+                    $student_email = $student['email'] ?? '';
+                    $student_name = $student['name'] ?? 'Student';
+                    $site_name = $current_site_load[$best_site_id]['name'];
                     
-                    if ($send_notifications) {
-                        try {
-                            $student_email = $student['email'] ?? '';
-                            $student_name = $student['name'] ?? 'Student';
-                            $site_name = $current_site_load[$best_site_id]['name'];
-                            
-                            $notification->sendAllocationNotification(
-                                $student['student_id'], $student_email, $student_name,
-                                $site_name, $start_date, $end_date, $required_role, 'in_app'
-                            );
-                            $notified_students[] = $student_name;
-                            $emails_to_send[] = [
-                                'student_id' => $student['student_id'],
-                                'email' => $student_email,
-                                'name' => $student_name,
-                                'site_name' => $site_name,
-                                'start_date' => $start_date,
-                                'end_date' => $end_date,
-                                'role' => $required_role
-                            ];
-                        } catch (Exception $e) {}
-                    }
+                    $in_app_notifications[] = [
+                        'user_id' => $student['student_id'],
+                        'user_type' => 'student',
+                        'title' => 'New Clinical Placement',
+                        'message' => "You have been allocated to {$site_name} from {$start_date} to {$end_date} as {$required_role}."
+                    ];
+                    
+                    $notified_students[] = $student_name;
+                    $emails_to_send[] = [
+                        'student_id' => $student['student_id'],
+                        'email' => $student_email,
+                        'name' => $student_name,
+                        'site_name' => $site_name,
+                        'start_date' => $start_date,
+                        'end_date' => $end_date,
+                        'role' => $required_role
+                    ];
                 }
             }
         }
         
+        // Execute bulk inserts for allocations
+        if (!empty($allocs_to_insert)) {
+            $chunks = array_chunk($allocs_to_insert, 200);
+            foreach ($chunks as $chunk) {
+                $values = [];
+                $params = [];
+                $i = 0;
+                foreach ($chunk as $alloc) {
+                    $values[] = "(:student_id_$i, :site_id_$i, :start_date_$i, :end_date_$i, :role_$i, 'active')";
+                    $params[":student_id_$i"] = $alloc['student_id'];
+                    $params[":site_id_$i"] = $alloc['site_id'];
+                    $params[":start_date_$i"] = $alloc['start_date'];
+                    $params[":end_date_$i"] = $alloc['end_date'];
+                    $params[":role_$i"] = $alloc['role'];
+                    $i++;
+                }
+                $query = "INSERT INTO allocation (student_id, site_id, start_date, end_date, role, status) VALUES " . implode(', ', $values);
+                $stmt = $conn->prepare($query);
+                $stmt->execute($params);
+            }
+        }
+        
+        // Execute bulk inserts for in-app notifications
+        if (!empty($in_app_notifications)) {
+            $notification->bulkSaveNotifications($in_app_notifications);
+        }
+        
         $conn->commit();
         
-        // After committing allocations, send deferred emails without blocking the database
+        // After committing allocations, queue deferred emails into session for AJAX dispatch
         if (!empty($emails_to_send)) {
-            // Remove time limit in case sending bulk emails takes a while
-            set_time_limit(0);
-            foreach ($emails_to_send as $email_data) {
-                try {
-                    $notification->sendAllocationNotification(
-                        $email_data['student_id'], 
-                        $email_data['email'], 
-                        $email_data['name'],
-                        $email_data['site_name'], 
-                        $email_data['start_date'], 
-                        $email_data['end_date'], 
-                        $email_data['role'], 
-                        'email_only'
-                    );
-                } catch (Exception $e) {
-                    // Ignore email errors to continue sending to others
-                }
-            }
+            $_SESSION['pending_emails'] = $emails_to_send;
         }
         
     } catch (Exception $e) {
@@ -268,7 +278,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['auto_allocate'])) {
         if (count($notified_students) > 0) {
             $message .= " Notified " . count($notified_students) . " students.";
         }
-        header("Location: auto_allocate.php?success=" . urlencode($message));
+        $dispatch = !empty($_SESSION['pending_emails']) ? "&dispatch=1" : "";
+        header("Location: auto_allocate.php?success=" . urlencode($message) . $dispatch);
         exit;
     }
 }
@@ -890,5 +901,19 @@ foreach ($sites as $site) {
             endInput.value = end.toISOString().split('T')[0];
         }
     </script>
+    <?php if (isset($_GET['dispatch']) && $_GET['dispatch'] == 1): ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('ajax/dispatch_emails.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(response => response.json())
+              .then(data => console.log('Background emails dispatched:', data))
+              .catch(err => console.error('Background dispatch failed:', err));
+        });
+    </script>
+    <?php endif; ?>
 </body>
 </html>
